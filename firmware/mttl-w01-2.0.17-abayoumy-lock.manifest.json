@@ -1,0 +1,45 @@
+{
+  "version": "2.0.17",
+  "profile": "NETWORK_OTA_TEST_RAM_SETTINGS",
+  "elf_sha256": "9d8be9cc3d817f85e976dcc730385f2047701781c62ef548ea247cdc6ccadb8e",
+  "files": [
+    {
+      "path": "/root/mttl_fork_check/source/standalone/results/network-ota-test/mttl-w01-2.0.17-network-OTA-test.bin",
+      "bytes": 334284,
+      "sha256": "90442933c0ca8fa31f7da14122fd99772489700406f5949eaef3aa83fc6803fb"
+    },
+    {
+      "path": "/root/mttl_fork_check/source/standalone/results/network-ota-test/mttl-w01-2.0.17-network-OTA-test.fwr",
+      "bytes": 334284,
+      "sha256": "b65c0e30e1c9ffb641b406de5e652d4721fc02baa70fa3ce5cd1335b81d6067b"
+    }
+  ],
+  "network_start_verified_in_setup_machine_code": true,
+  "setup_arm_mock_success_failure_cases": 2,
+  "objcopy_byte_match": true,
+  "bin_fwr_roundtrip": true,
+  "native_ota_hardware_field_verified": true,
+  "msp_reserve_bytes": 4096,
+  "static_gap_to_msp_bytes": 764,
+  "link_warning_count": 1035,
+  "boot_signature": "FFFFFFFFFFFFFFFF",
+  "device_written": false,
+  "target_boot_verified": false,
+  "validation_profile": "Portable format/roundtrip and setup emulator; original decoder fixture not included",
+  "production_ready": false,
+  "relay_enabled": true,
+  "settings_persistent": false,
+  "ota_write_enabled": true,
+  "settings_flash_enabled": true,
+  "settings_sectors": [
+    "0xee000",
+    "0xef000"
+  ],
+  "initial_rtos_heap_bytes": 39936,
+  "sensor_gpio_enabled": true,
+  "ota_runtime_validated": false,
+  "warning": "Experimental bring-up candidate, not target-boot validated. Recovery debugger required. No direct full-flash writing; no bootloader/factory replacement.",
+  "build_id": "abayoumy-lock",
+  "watchdog_enabled": true,
+  "legacy_relay_timing": false
+}

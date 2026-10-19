@@ -1,0 +1,820 @@
+diff --git a/source/standalone/firmware/device_app.c b/source/standalone/firmware/device_app.c
+index 4347d81..b2f3062 100644
+--- a/source/standalone/firmware/device_app.c
++++ b/source/standalone/firmware/device_app.c
+@@ -99,14 +99,14 @@ size_t mttl_device_status(const mttl_device_app *d,uint32_t now,char *out,size_t
+     for(i=0;i<4;i++){if(!quote(d->settings.channel[i],name,sizeof(name)))return 0;sample(&d->samples.power[i],now,power);sample(&d->samples.meter[i],now,meter);sample(&d->samples.current[i],now,current);sample(&d->samples.temperature[i],now,temp);
+         strcpy(on,(d->control.known_mask&(1u<<i))?((d->control.on_mask&(1u<<i))?"true":"false"):"null");
+         n=snprintf(out+used,cap-used,"%s{\"name\":%s,\"on\":%s,\"locked\":%s,\"power_mw\":%s,\"meter_wh\":%s,\"current_ma\":%s,\"temp_dc\":%s}",i?",":"",name,on,(d->settings.button_lock&(1u<<i))?"true":"false",power,meter,current,temp);if(n<0||(size_t)n>=cap-used)return 0;used+=(size_t)n;}
+-    n=snprintf(out+used,cap-used,"],\"protection\":{\"reason\":%u,\"error\":%u},\"timer_running\":%u,\"timer_end\":[%lu,%lu,%lu,%lu]}",(unsigned)d->protection.reason,(unsigned)d->protection.error_mask,(unsigned)d->timers.running,(unsigned long)d->timers.deadline[0],(unsigned long)d->timers.deadline[1],(unsigned long)d->timers.deadline[2],(unsigned long)d->timers.deadline[3]);return n>0&&(size_t)n<cap-used?used+(size_t)n:0;
++    n=snprintf(out+used,cap-used,"],\"protection\":{\"reason\":%u,\"error\":%u,\"channel_mask\":%u},\"timer_running\":%u,\"timer_end\":[%lu,%lu,%lu,%lu]}",(unsigned)d->protection.reason,(unsigned)d->protection.error_mask,(unsigned)d->protection.channel_mask,(unsigned)d->timers.running,(unsigned long)d->timers.deadline[0],(unsigned long)d->timers.deadline[1],(unsigned long)d->timers.deadline[2],(unsigned long)d->timers.deadline[3]);return n>0&&(size_t)n<cap-used?used+(size_t)n:0;
+ }
+ size_t mttl_device_settings_json(const mttl_device_app *d,char *out,size_t cap){return mttl_settings_json(&d->settings,d->persistent,out,cap);}
+ size_t mttl_settings_json(const mttl_settings *s,int persistent,char *out,size_t cap){
+     char device[132],channels[4][132],broker[510],user[132],topic[132];int n;unsigned i;size_t used;
+     if(!quote(s->device,device,sizeof(device))||!quote(s->broker,broker,sizeof(broker))||!quote(s->mqtt_user,user,sizeof(user))||!quote(s->topic,topic,sizeof(topic)))return 0;
+     for(i=0;i<4;i++)if(!quote(s->channel[i],channels[i],sizeof(channels[i])))return 0;
+-    n=snprintf(out,cap,"{\"device\":%s,\"channels\":[%s,%s,%s,%s],\"language\":%u,\"broker\":%s,\"port\":%u,\"user\":%s,\"topic\":%s,\"enabled\":%s,\"wifi_password_set\":%s,\"mqtt_password_set\":%s,\"persistent\":%s,\"protection\":{\"enabled\":%u,\"temperature\":%u,\"current\":%u,\"power\":%u},\"schedule_hex\":\"",device,channels[0],channels[1],channels[2],channels[3],s->language,broker,s->port,user,topic,s->mqtt_enabled?"true":"false",s->wifi_password[0]?"true":"false",s->mqtt_password[0]?"true":"false",persistent?"true":"false",(unsigned)s->protection.enabled,(unsigned)s->protection.temperature_c,(unsigned)s->protection.current_ma,(unsigned)s->protection.power_w);
++    n=snprintf(out,cap,"{\"device\":%s,\"channels\":[%s,%s,%s,%s],\"language\":%u,\"broker\":%s,\"port\":%u,\"user\":%s,\"topic\":%s,\"enabled\":%s,\"wifi_password_set\":%s,\"mqtt_password_set\":%s,\"persistent\":%s,\"protection\":{\"enabled\":%u,\"temperature\":%u,\"current\":%u,\"power\":%u,\"channel_current\":[%u,%u,%u,%u]},\"schedule_hex\":\"",device,channels[0],channels[1],channels[2],channels[3],s->language,broker,s->port,user,topic,s->mqtt_enabled?"true":"false",s->wifi_password[0]?"true":"false",s->mqtt_password[0]?"true":"false",persistent?"true":"false",(unsigned)s->protection.enabled,(unsigned)s->protection.temperature_c,(unsigned)s->protection.current_ma,(unsigned)s->protection.power_w,(unsigned)s->protection.channel_current_ma[0],(unsigned)s->protection.channel_current_ma[1],(unsigned)s->protection.channel_current_ma[2],(unsigned)s->protection.channel_current_ma[3]);
+     if(n<0||(size_t)n+103>=cap)return 0;used=(size_t)n;
+     {uint8_t bytes[50];static const char hex[]="0123456789abcdef";mttl_schedule_pack(&s->schedule,bytes);for(i=0;i<50;i++){out[used++]=hex[bytes[i]>>4];out[used++]=hex[bytes[i]&15];}}
+     n=snprintf(out+used,cap-used,"\",\"button_lock\":%u,\"timer_minutes\":[%u,%u,%u,%u]}",(unsigned)s->button_lock,(unsigned)s->timer_minutes[0],(unsigned)s->timer_minutes[1],(unsigned)s->timer_minutes[2],(unsigned)s->timer_minutes[3]);return n>0&&(size_t)n<cap-used?used+(size_t)n:0;
+diff --git a/source/standalone/firmware/protection.c b/source/standalone/firmware/protection.c
+index 86fd968..9b5e676 100644
+--- a/source/standalone/firmware/protection.c
++++ b/source/standalone/firmware/protection.c
+@@ -1,18 +1,58 @@
+ #include "protection.h"
+-void mttl_protection_default(mttl_protection_config *c){c->temperature_c=90;c->current_ma=16000;c->power_w=3000;c->enabled=7;}
+-int mttl_protection_valid(const mttl_protection_config *c){return c&&c->temperature_c>=50&&c->temperature_c<=90&&c->current_ma>=1000&&c->current_ma<=16000&&c->power_w>=100&&c->power_w<=3000&&c->enabled<=7;}
+-unsigned mttl_protection_temperature(mttl_protection_state *s,const mttl_protection_config *c,int valid,int32_t t){
+- unsigned reason=(c->enabled&1)&&valid&&t>(int32_t)c->temperature_c*10?1:0;
+- if(reason){s->reason=1;s->current_count=s->power_count=0;}return reason;
++void mttl_protection_default(mttl_protection_config *c){
++    unsigned i;
++    c->temperature_c=90;c->current_ma=16000;c->power_w=3000;c->enabled=7;
++    for(i=0;i<MTTL_PROTECTION_CHANNELS;i++)c->channel_current_ma[i]=16000;
+ }
+-unsigned mttl_protection_round(mttl_protection_state *s,const mttl_protection_config *c,unsigned valid,int32_t t,int32_t i,int32_t p){
+- unsigned reason=0;if(!s||!mttl_protection_valid(c))return 0;
++int mttl_protection_valid(const mttl_protection_config *c){
++    unsigned i;
++    if(!c||c->temperature_c<50||c->temperature_c>90||c->current_ma<1000||c->current_ma>16000||
++       c->power_w<100||c->power_w>3000||c->enabled>MTTL_PROTECTION_ENABLE_ALL)return 0;
++    for(i=0;i<MTTL_PROTECTION_CHANNELS;i++)if(c->channel_current_ma[i]<1000||c->channel_current_ma[i]>16000)return 0;
++    return 1;
++}
++/* Two-round confirmation never survives a reported trip. */
++static void clear_counts(mttl_protection_state *s){
++    unsigned i;s->current_count=s->power_count=0;
++    for(i=0;i<MTTL_PROTECTION_CHANNELS;i++)s->channel_current_count[i]=0;
++}
++unsigned mttl_protection_temperature(mttl_protection_state *s,const mttl_protection_config *c,unsigned channel,int valid,int32_t t){
++ unsigned reason=(c->enabled&MTTL_PROTECTION_ENABLE_TEMPERATURE)&&valid&&t>(int32_t)c->temperature_c*10?
++     MTTL_PROTECTION_REASON_TEMPERATURE:0;
++ if(reason){uint8_t bit=channel<MTTL_PROTECTION_CHANNELS?(uint8_t)(1u<<channel):MTTL_PROTECTION_CUT_ALL;
++     s->reason=(uint8_t)reason;s->channel_mask=bit;s->cut_mask=bit;clear_counts(s);}return reason;
++}
++unsigned mttl_protection_round(mttl_protection_state *s,const mttl_protection_config *c,unsigned valid,int32_t t,int32_t i,int32_t p,const int32_t *ci){
++ unsigned reason=0,ch,per_channel,aggregate=0;uint8_t error=0,mask=0,cut=0;
++ if(!s||!mttl_protection_valid(c))return 0;
+  if(t<0)valid&=~1u;if(i<0)valid&=~2u;if(p<0)valid&=~4u;
+- s->error_mask=(uint8_t)(c->enabled&~valid&7);
+- if((c->enabled&valid&1)&&t>(int32_t)c->temperature_c*10)reason|=1;
+- if((c->enabled&valid&2)&&i>c->current_ma){if(s->current_count<2)++s->current_count;}else s->current_count=0;
+- if((c->enabled&valid&4)&&p>(int32_t)c->power_w*1000){if(s->power_count<2)++s->power_count;}else s->power_count=0;
+- if(s->current_count==2)reason|=2;if(s->power_count==2)reason|=4;
+- if(reason){s->reason=(uint8_t)reason;s->current_count=s->power_count=0;}
++ /* A missing reading for this round reports every limit that depends on it. */
++ if(!(valid&1))error|=MTTL_PROTECTION_ENABLE_TEMPERATURE;
++ if(!(valid&2))error|=MTTL_PROTECTION_ENABLE_CURRENT|MTTL_PROTECTION_ENABLE_CHANNEL_CURRENT;
++ if(!(valid&4))error|=MTTL_PROTECTION_ENABLE_POWER;
++ s->error_mask=(uint8_t)(c->enabled&error&MTTL_PROTECTION_ENABLE_ALL);
++ if((c->enabled&valid&MTTL_PROTECTION_ENABLE_TEMPERATURE)&&t>(int32_t)c->temperature_c*10)reason|=MTTL_PROTECTION_REASON_TEMPERATURE;
++ if((c->enabled&valid&MTTL_PROTECTION_ENABLE_CURRENT)&&i>c->current_ma){if(s->current_count<2)++s->current_count;}else s->current_count=0;
++ if((c->enabled&valid&MTTL_PROTECTION_ENABLE_POWER)&&p>(int32_t)c->power_w*1000){if(s->power_count<2)++s->power_count;}else s->power_count=0;
++ if(s->current_count==2){reason|=MTTL_PROTECTION_REASON_CURRENT;aggregate=1;}
++ if(s->power_count==2){reason|=MTTL_PROTECTION_REASON_POWER;aggregate=1;}
++ /* The per-channel limit shares the aggregate two-round confirmation and is
++  * only judged on rounds that actually read all four channels. */
++ per_channel=(c->enabled&MTTL_PROTECTION_ENABLE_CHANNEL_CURRENT)&&(valid&2u)&&ci?1u:0u;
++ for(ch=0;ch<MTTL_PROTECTION_CHANNELS;ch++){
++   if(per_channel&&ci[ch]>=0&&ci[ch]>c->channel_current_ma[ch]){
++       /* At most one trip per round: the first channel over its limit reports. */
++       if(++s->channel_current_count[ch]>=2){
++           reason|=MTTL_PROTECTION_REASON_CURRENT;mask|=(uint8_t)(1u<<ch);cut|=(uint8_t)(1u<<ch);
++           s->channel_current_count[ch]=0;
++       }
++   }else s->channel_current_count[ch]=0;
++ }
++ /* Only a per-channel current trip names an outlet. Aggregate current and
++  * power, and a temperature with no channel here, cut the whole strip; an
++  * unrecognised cause falls back to the whole strip rather than to nothing. */
++ if(reason){s->reason=(uint8_t)reason;s->channel_mask=mask;
++     s->cut_mask=(uint8_t)((aggregate||!(reason&MTTL_PROTECTION_REASON_CURRENT)||!cut)?MTTL_PROTECTION_CUT_ALL:cut);
++     clear_counts(s);}
+  return reason;
+ }
+diff --git a/source/standalone/firmware/protection.h b/source/standalone/firmware/protection.h
+index d7fbf57..778d3fe 100644
+--- a/source/standalone/firmware/protection.h
++++ b/source/standalone/firmware/protection.h
+@@ -1,15 +1,53 @@
+ #ifndef MTTL_PROTECTION_H
+ #define MTTL_PROTECTION_H
+ #include <stdint.h>
+-typedef struct {uint16_t temperature_c,current_ma,power_w;uint8_t enabled;} mttl_protection_config;
+-typedef struct {uint8_t current_count,power_count,error_mask,reason;} mttl_protection_state;
++#define MTTL_PROTECTION_CHANNELS 4
++/* mttl_protection_config.enabled bits. 0..2 keep the shipped v4..v7 meaning so
++ * stored records, the /api/config projection and the existing MQTT contract are
++ * unchanged; bit 3 is the per-channel limit introduced with settings v8.
++ *
++ * Only current is per-channel: on one mains supply a per-channel power limit is
++ * the same judgement at a fixed voltage, and BD_RAM here has ~1.6 KB of slack in
++ * total for code, rodata and the gzipped UI combined. */
++#define MTTL_PROTECTION_ENABLE_TEMPERATURE     0x01u
++#define MTTL_PROTECTION_ENABLE_CURRENT         0x02u
++#define MTTL_PROTECTION_ENABLE_POWER           0x04u
++#define MTTL_PROTECTION_ENABLE_CHANNEL_CURRENT 0x08u
++#define MTTL_PROTECTION_ENABLE_ALL             0x0fu
++/* Relays a trip switches off when its cause cannot be pinned on one outlet:
++ * aggregate current and aggregate power have no per-channel meaning. */
++#define MTTL_PROTECTION_CUT_ALL                0x0fu
++/* reason/error_mask use the enable-bit numbering above. */
++#define MTTL_PROTECTION_REASON_TEMPERATURE 0x01u
++#define MTTL_PROTECTION_REASON_CURRENT     0x02u
++#define MTTL_PROTECTION_REASON_POWER       0x04u
++typedef struct {
++    uint16_t temperature_c; /* deci-C limit for the highest fresh channel */
++    uint16_t current_ma;    /* corrected aggregate current limit */
++    uint16_t power_w;       /* aggregate power limit */
++    uint16_t channel_current_ma[MTTL_PROTECTION_CHANNELS];
++    uint8_t enabled;
++} mttl_protection_config;
++typedef struct {
++    uint8_t current_count,power_count,error_mask,reason;
++    uint8_t channel_current_count[MTTL_PROTECTION_CHANNELS];
++    uint8_t channel_mask; /* Bit per channel: attribution of the last trip. */
++    uint8_t cut_mask;     /* Relays that trip switches off; CUT_ALL when the
++                           * cause cannot be attributed to one outlet. */
++} mttl_protection_state;
+ void mttl_protection_default(mttl_protection_config *);
+ int mttl_protection_valid(const mttl_protection_config *);
+-unsigned mttl_protection_temperature(mttl_protection_state *,const mttl_protection_config *,int valid,int32_t temperature_dc);
++/* One fresh channel temperature. Cuts that outlet only: a hot outlet does not
++ * justify switching the other three off. */
++unsigned mttl_protection_temperature(mttl_protection_state *,const mttl_protection_config *,unsigned channel,int valid,int32_t temperature_dc);
+ /* Called once per completed NEW measurement round, never from cached UI data.
+  * valid bits: temperature=1, corrected total current=2, total power=4.
+  * Temperature caller supplies maximum fresh channel temperature in deci-C.
+- * Current is corrected mA; power is the existing aggregate in mW.
+- * Returns reason bits requesting ALL OFF, not a lock. No output side effects. */
+-unsigned mttl_protection_round(mttl_protection_state *,const mttl_protection_config *,unsigned valid,int32_t temperature_dc,int32_t current_ma,int32_t power_mw);
++ * Aggregate current is corrected mA; aggregate power is mW.
++ * channel_current_ma is a four-entry array of that round's corrected per-channel
++ * current in mA, or NULL when the round read fewer than four channels.
++ * Returns reason bits requesting a cut, not a lock. The relays to switch off
++ * are in cut_mask: only a per-channel current trip can be pinned on an outlet,
++ * so anything else requests CUT_ALL. No output side effects. */
++unsigned mttl_protection_round(mttl_protection_state *,const mttl_protection_config *,unsigned valid,int32_t temperature_dc,int32_t current_ma,int32_t power_mw,const int32_t *channel_current_ma);
+ #endif
+diff --git a/source/standalone/firmware/sdk_meter.c b/source/standalone/firmware/sdk_meter.c
+index ab314ef..1af6afa 100644
+--- a/source/standalone/firmware/sdk_meter.c
++++ b/source/standalone/firmware/sdk_meter.c
+@@ -10,16 +10,17 @@ static mttl_meter_power_state power_state;static mttl_meter_power_input power_in
+ static uint8_t energy_reads;static uint32_t energy_raw[4];
+ static uint8_t protection_event,temperature_reads,round_current,round_power,last_channel;
+ unsigned mttl_sdk_meter_protection(const mttl_hardware_samples *s,const mttl_protection_config *c,mttl_protection_state *p){
+- unsigned reason=0,valid=0,i;int32_t current=0,power=0;uint8_t event=protection_event;protection_event=0;
++ unsigned reason=0,valid=0,i;int32_t current=0,power=0,channel_current[4]={0,0,0,0};uint8_t event=protection_event;protection_event=0;
+  if(!event)return 0;
+  p->error_mask=(uint8_t)(c->enabled&((p->error_mask&6)|(temperature_reads==15?0:1)));
+- if(event&1)reason=mttl_protection_temperature(p,c,(temperature_reads>>last_channel)&1,s->temperature[last_channel].value);
++ if(event&1)reason=mttl_protection_temperature(p,c,last_channel,(temperature_reads>>last_channel)&1,s->temperature[last_channel].value);
+  if(event&2){p->error_mask=(uint8_t)(c->enabled&((p->error_mask&1)|(round_current==15?0:2)|(round_power==15?0:4)));
+  if(reason)return reason;
+- if(round_current==15){valid|=2;for(i=0;i<4;i++)current+=s->current[i].value;}
++ if(round_current==15){valid|=2;for(i=0;i<4;i++){current+=s->current[i].value;channel_current[i]=s->current[i].value;}}
+   if(round_power==15){valid|=4;for(i=0;i<4;i++)power+=s->power[i].value;}
+-  /* Temperature was evaluated at each fresh channel read, not again here. */
+-  {mttl_protection_config cp=*c;unsigned error=p->error_mask;cp.enabled&=6;reason|=mttl_protection_round(p,&cp,valid,0,current,power);p->error_mask=(uint8_t)error;}
++  /* Temperature was evaluated at each fresh channel read, not again here.
++   * The per-channel array is only handed over for complete rounds. */
++  {mttl_protection_config cp=*c;unsigned error=p->error_mask;cp.enabled&=MTTL_PROTECTION_ENABLE_ALL&~MTTL_PROTECTION_ENABLE_TEMPERATURE;reason|=mttl_protection_round(p,&cp,valid,0,current,power,round_current==15?channel_current:0);p->error_mask=(uint8_t)error;}
+  }return reason;
+ }
+ static void (*service_network)(void);
+diff --git a/source/standalone/firmware/sdk_worker.c b/source/standalone/firmware/sdk_worker.c
+index 6e499fc..b47b751 100644
+--- a/source/standalone/firmware/sdk_worker.c
++++ b/source/standalone/firmware/sdk_worker.c
+@@ -175,9 +175,11 @@ static __attribute__((noinline)) void timer_service(uint32_t now){
+  if(!relay_busy&&!relay_fault&&!provision_requested)for(i=0;i<4;i++)if(expired&(1u<<i))(void)control_enqueue(i,0,1);
+  taskEXIT_CRITICAL();
+ }
+-/* Replace waiting ON commands with a priority ALL OFF; an active coil pulse
+- * still finishes/release safely. No persistent lock or automatic re-enable. */
+-static void protection_off(void){taskENTER_CRITICAL();if(relay_wake&&device.hardware.verified&&!relay_fault){control_head=0;control_pending=1;control_queue[0].channel=4;control_queue[0].on=0;control_queue[0].mask=15;control_queue[0].at=(uint32_t)xTaskGetTickCount()*portTICK_RATE_MS;watchdog_relay_at=control_queue[0].at;relay_busy=1;relay_desired=0;}taskEXIT_CRITICAL();if(relay_wake)xSemaphoreGive(relay_wake);}
++/* Replace waiting ON commands with a priority cut of the relays the trip
++ * blames, mask 15 for a cause that cannot be attributed to an outlet; an active
++ * coil pulse still finishes/release safely. No persistent lock or automatic
++ * re-enable. */
++static void protection_off(unsigned mask){taskENTER_CRITICAL();if(relay_wake&&device.hardware.verified&&!relay_fault){if(!mask)mask=15u;control_head=0;control_pending=1;control_queue[0].channel=4;control_queue[0].on=0;control_queue[0].mask=(uint8_t)mask;control_queue[0].at=(uint32_t)xTaskGetTickCount()*portTICK_RATE_MS;watchdog_relay_at=control_queue[0].at;relay_busy=1;relay_desired=(uint8_t)(relay_desired&~mask);}taskEXIT_CRITICAL();if(relay_wake)xSemaphoreGive(relay_wake);}
+ void mttl_sdk_button_event(unsigned index,int event){unsigned on;if(index>4||!event)return;
+  if(index==0&&event==2){taskENTER_CRITICAL();if(!energy_barrier_state){provision_requested=1;setup_led_edges=6;setup_led_at=(uint32_t)xTaskGetTickCount()*portTICK_RATE_MS-200u;}taskEXIT_CRITICAL();return;}
+  taskENTER_CRITICAL();on=index?!(relay_desired&(1u<<(index-1))):!(relay_desired&(15u&~device.settings.button_lock));
+@@ -367,7 +369,7 @@ static void worker(void *p){
+           taskEXIT_CRITICAL();
+          }}
+         mttl_sdk_meter_tick(&device.samples,clock_ms(0));
+-        if(mttl_sdk_meter_protection(&device.samples,&device.settings.protection,&device.protection))protection_off();
++        if(mttl_sdk_meter_protection(&device.samples,&device.settings.protection,&device.protection))protection_off(device.protection.cut_mask);
+         if(storage_begin()){mttl_sdk_energy_tick(&device.settings,&device.samples,clock_ms(0));storage_end();}
+         publish_snapshots(clock_ms(0));
+         {
+diff --git a/source/standalone/firmware/selftest.c b/source/standalone/firmware/selftest.c
+index 8c566f0..6f2847e 100644
+--- a/source/standalone/firmware/selftest.c
++++ b/source/standalone/firmware/selftest.c
+@@ -330,18 +330,30 @@ uint32_t mttl_selftest(void) {
+     }
+     {mttl_protection_config c;mttl_protection_state p={0};mttl_protection_default(&c);
+      check(mttl_protection_valid(&c)&&c.enabled==7);
+-     check(!mttl_protection_round(&p,&c,7,900,16000,3000000));
+-     check(mttl_protection_round(&p,&c,7,901,0,0)==1);
+-     check(!mttl_protection_round(&p,&c,7,0,16001,3000001));
+-     check(mttl_protection_round(&p,&c,7,0,16001,3000001)==6);
+-     check(!mttl_protection_round(&p,&c,7,0,16001,3000001));
+-     check(!mttl_protection_round(&p,&c,1,0,16001,3000001)&&p.error_mask==6&&!p.current_count&&!p.power_count);
+-     check(!mttl_protection_round(&p,&c,7,0,16001,3000001));
+-     check(!mttl_protection_round(&p,&c,7,0,0,0)&&!p.current_count&&!p.power_count);
+-     c.enabled=0;check(!mttl_protection_round(&p,&c,7,9999,99999,9999999)&&!p.error_mask);
++     check(!mttl_protection_round(&p,&c,7,900,16000,3000000,0));
++     check(mttl_protection_round(&p,&c,7,901,0,0,0)==1);
++     check(!mttl_protection_round(&p,&c,7,0,16001,3000001,0));
++     check(mttl_protection_round(&p,&c,7,0,16001,3000001,0)==6);
++     check(!mttl_protection_round(&p,&c,7,0,16001,3000001,0));
++     check(!mttl_protection_round(&p,&c,1,0,16001,3000001,0)&&p.error_mask==6&&!p.current_count&&!p.power_count);
++     check(!mttl_protection_round(&p,&c,7,0,16001,3000001,0));
++     check(!mttl_protection_round(&p,&c,7,0,0,0,0)&&!p.current_count&&!p.power_count);
++     c.enabled=0;check(!mttl_protection_round(&p,&c,7,9999,99999,9999999,0)&&!p.error_mask);
+      c.temperature_c=49;check(!mttl_protection_valid(&c));c.temperature_c=50;c.current_ma=999;check(!mttl_protection_valid(&c));
+      c.current_ma=1000;c.power_w=99;check(!mttl_protection_valid(&c));c.power_w=100;check(mttl_protection_valid(&c));
+     }
++    {mttl_protection_config c;mttl_protection_state p={0};int32_t ci[4]={0,0,0,0};
++     mttl_protection_default(&c);c.enabled=MTTL_PROTECTION_ENABLE_CHANNEL_CURRENT;c.channel_current_ma[2]=1000;ci[2]=1001;
++     check(!mttl_protection_round(&p,&c,6,0,0,0,ci)&&!p.channel_mask);
++     check(mttl_protection_round(&p,&c,6,0,0,0,ci)==MTTL_PROTECTION_REASON_CURRENT&&p.channel_mask==4);
++     ci[2]=1000;check(!mttl_protection_round(&p,&c,6,0,0,0,ci)&&!p.channel_current_count[2]);
++     /* A round that read fewer than four channels has no per-channel opinion. */
++     ci[2]=9999;check(!mttl_protection_round(&p,&c,2,0,0,0,0)&&!mttl_protection_round(&p,&c,2,0,0,0,0)&&!p.channel_current_count[2]);
++     /* Clearing the enable bit stops judging; the last trip stays reported. */
++     c.enabled=0;check(!mttl_protection_round(&p,&c,6,0,0,0,ci)&&p.channel_mask==4);
++     c.channel_current_ma[0]=999;check(!mttl_protection_valid(&c));c.channel_current_ma[0]=1000;
++     c.enabled=MTTL_PROTECTION_ENABLE_ALL+1;check(!mttl_protection_valid(&c));
++    }
+     {mttl_settings a,b;uint8_t bytes[1024];size_t n;mttl_settings_default(&a);
+      a.protection.temperature_c=65;a.protection.current_ma=2300;a.protection.power_w=750;a.protection.enabled=5;
+      a.relay_known=15;a.relay_on=2;a.energy_valid=1;a.energy_wh[0]=1234;
+@@ -349,11 +361,11 @@ uint32_t mttl_selftest(void) {
+      check(b.protection.temperature_c==65&&b.protection.current_ma==2300&&b.protection.power_w==750&&b.protection.enabled==5);
+      check(b.relay_known==15&&b.relay_on==2&&b.energy_wh[0]==1234);
+      n=mttl_settings_pack(&a,bytes,sizeof(bytes));bytes[0]=1;
+-     check(mttl_settings_unpack(bytes,n-66,&b)&&b.protection.enabled==7&&b.protection.temperature_c==90&&b.protection.current_ma==16000&&b.protection.power_w==3000&&!b.button_lock);
+-     bytes[0]=7;bytes[n-66]=8;check(!mttl_settings_unpack(bytes,n,&b));
++     check(mttl_settings_unpack(bytes,n-74,&b)&&b.protection.enabled==7&&b.protection.temperature_c==90&&b.protection.current_ma==16000&&b.protection.power_w==3000&&!b.button_lock);
++     bytes[0]=8;bytes[n-74]=32;check(!mttl_settings_unpack(bytes,n,&b));
+      a.button_lock=5;n=mttl_settings_pack(&a,bytes,sizeof(bytes));check(n&&mttl_settings_unpack(bytes,n,&b)&&b.button_lock==5);
+-     bytes[n-9]=16;check(!mttl_settings_unpack(bytes,n,&b));
+-     bytes[n-9]=5;bytes[0]=5;check(mttl_settings_unpack(bytes,n-9,&b)&&b.button_lock==0);
++     bytes[n-17]=16;check(!mttl_settings_unpack(bytes,n,&b));
++     bytes[n-17]=5;bytes[0]=5;check(mttl_settings_unpack(bytes,n-17,&b)&&b.button_lock==0);
+     }
+     {mttl_settings a,b;uint8_t bytes[1024];size_t n;unsigned ch,target,active;
+      mttl_settings_default(&a);for(ch=0;ch<4;ch++){a.timer_minutes[ch]=1440;n=mttl_settings_storage_pack(&a,bytes,sizeof(bytes));check(n&&mttl_settings_storage_unpack(bytes,n,&b)&&b.timer_minutes[ch]==1440);a.timer_minutes[ch]=0;}
+@@ -362,7 +374,7 @@ uint32_t mttl_selftest(void) {
+        mttl_settings_default(&a);a.timer_minutes[ch]=1;a.schedule.rules[0].mode=1|(active?128:0);a.schedule.rules[0].channel=target;
+        check(mttl_settings_valid(&a)==(target!=4&&target!=ch));
+      }
+-     mttl_settings_default(&a);a.timer_minutes[1]=90;n=mttl_settings_pack(&a,bytes,sizeof(bytes));bytes[0]=6;check(mttl_settings_unpack(bytes,n-8,&b)&&!b.timer_minutes[1]);
++     mttl_settings_default(&a);a.timer_minutes[1]=90;n=mttl_settings_pack(&a,bytes,sizeof(bytes));bytes[0]=6;check(mttl_settings_unpack(bytes,n-16,&b)&&!b.timer_minutes[1]);
+     }
+     {mttl_timer_state timer={{0},{0},0};uint16_t minutes[4]={1,2,1440,0};unsigned i;
+      check(!mttl_timer_tick(&timer,minutes,15,0,100));check(!timer.running);
+diff --git a/source/standalone/firmware/settings.c b/source/standalone/firmware/settings.c
+index a55d2bb..3304bf5 100644
+--- a/source/standalone/firmware/settings.c
++++ b/source/standalone/firmware/settings.c
+@@ -57,31 +57,36 @@ static int field(uint8_t *out,size_t cap,size_t *used,const char *s,size_t bound
+     out[(*used)++]=(uint8_t)n;for(i=0;i<n;i++)out[(*used)++]=(uint8_t)s[i];return 1;
+ }
+ size_t mttl_settings_pack(const mttl_settings *s,uint8_t *out,size_t cap){
+-    size_t n=5,i,needed=82;if(!out||!mttl_settings_valid(s))return 0;
++    size_t n=5,i,needed=90;if(!out||!mttl_settings_valid(s))return 0;
+     needed+=length(s->device,65);for(i=0;i<4;i++)needed+=length(s->channel[i],65);
+     needed+=length(s->ssid,33)+length(s->wifi_password,65)+length(s->broker,254)+length(s->mqtt_user,65)+length(s->mqtt_password,65)+length(s->topic,65);
+     if(cap<needed)return 0; /* No partial credential output on short buffer. */
+-    out[0]=7;out[1]=s->language;out[2]=s->mqtt_enabled;out[3]=(uint8_t)s->port;out[4]=(uint8_t)(s->port>>8);
++    out[0]=8;out[1]=s->language;out[2]=s->mqtt_enabled;out[3]=(uint8_t)s->port;out[4]=(uint8_t)(s->port>>8);
+     if(!field(out,cap,&n,s->device,65))return 0;
+     for(i=0;i<4;i++)if(!field(out,cap,&n,s->channel[i],65))return 0;
+     if(!field(out,cap,&n,s->ssid,33)||!field(out,cap,&n,s->wifi_password,65)||!field(out,cap,&n,s->broker,254)||!field(out,cap,&n,s->mqtt_user,65)||!field(out,cap,&n,s->mqtt_password,65)||!field(out,cap,&n,s->topic,65))return 0;
+     out[n++]=s->protection.enabled;out[n++]=(uint8_t)s->protection.temperature_c;out[n++]=(uint8_t)(s->protection.temperature_c>>8);
+     out[n++]=(uint8_t)s->protection.current_ma;out[n++]=(uint8_t)(s->protection.current_ma>>8);
+-    out[n++]=(uint8_t)s->protection.power_w;out[n++]=(uint8_t)(s->protection.power_w>>8);mttl_schedule_pack(&s->schedule,out+n);n+=50;out[n++]=s->button_lock;for(i=0;i<4;i++){out[n++]=(uint8_t)s->timer_minutes[i];out[n++]=(uint8_t)(s->timer_minutes[i]>>8);}return n;
++    out[n++]=(uint8_t)s->protection.power_w;out[n++]=(uint8_t)(s->protection.power_w>>8);mttl_schedule_pack(&s->schedule,out+n);n+=50;out[n++]=s->button_lock;for(i=0;i<4;i++){out[n++]=(uint8_t)s->timer_minutes[i];out[n++]=(uint8_t)(s->timer_minutes[i]>>8);}
++    /* v8 tail: per-channel current limits, appended so every v4..v7 reader is intact. */
++    for(i=0;i<4;i++){out[n++]=(uint8_t)s->protection.channel_current_ma[i];out[n++]=(uint8_t)(s->protection.channel_current_ma[i]>>8);}
++    return n;
+ }
+ static int take(const uint8_t *body,size_t size,size_t *used,char *out,size_t cap){
+     size_t n,i;if(*used>=size)return 0;n=body[(*used)++];if(n>=cap||n>size-*used)return 0;
+     for(i=0;i<n;i++){if(!body[*used])return 0;out[i]=(char)body[(*used)++];}out[n]=0;return 1;
+ }
+ int mttl_settings_unpack(const uint8_t *body,size_t size,mttl_settings *out){
+-    mttl_settings tmp;size_t n=5,i;int result=0;volatile uint8_t *wipe=(volatile uint8_t *)&tmp;if(!body||!out||size<5||size>MTTL_SETTINGS_BODY_MAX||(body[0]!=1&&body[0]!=4&&body[0]!=5&&body[0]!=6&&body[0]!=7))return 0;
++    mttl_settings tmp;size_t n=5,i;int result=0;volatile uint8_t *wipe=(volatile uint8_t *)&tmp;if(!body||!out||size<5||size>MTTL_SETTINGS_BODY_MAX||(body[0]!=1&&body[0]!=4&&body[0]!=5&&body[0]!=6&&body[0]!=7&&body[0]!=8))return 0;
+     mttl_settings_default(&tmp);tmp.language=body[1];tmp.mqtt_enabled=body[2];tmp.port=(uint16_t)body[3]|((uint16_t)body[4]<<8);
+     if(!take(body,size,&n,tmp.device,65))goto done;for(i=0;i<4;i++)if(!take(body,size,&n,tmp.channel[i],65))goto done;
+     if(!take(body,size,&n,tmp.ssid,33)||!take(body,size,&n,tmp.wifi_password,65)||!take(body,size,&n,tmp.broker,254)||!take(body,size,&n,tmp.mqtt_user,65)||!take(body,size,&n,tmp.mqtt_password,65)||!take(body,size,&n,tmp.topic,65))goto done;
+-    if(body[0]>=4){if(size-n!=(body[0]==7?66:body[0]==6?58:body[0]==5?57:7))goto done;tmp.protection.enabled=body[n++];tmp.protection.temperature_c=(uint16_t)body[n]|((uint16_t)body[n+1]<<8);n+=2;tmp.protection.current_ma=(uint16_t)body[n]|((uint16_t)body[n+1]<<8);n+=2;tmp.protection.power_w=(uint16_t)body[n]|((uint16_t)body[n+1]<<8);n+=2;}
++    if(body[0]>=4){if(size-n!=(body[0]==8?74:body[0]==7?66:body[0]==6?58:body[0]==5?57:7))goto done;tmp.protection.enabled=body[n++];tmp.protection.temperature_c=(uint16_t)body[n]|((uint16_t)body[n+1]<<8);n+=2;tmp.protection.current_ma=(uint16_t)body[n]|((uint16_t)body[n+1]<<8);n+=2;tmp.protection.power_w=(uint16_t)body[n]|((uint16_t)body[n+1]<<8);n+=2;}
+     if(body[0]>=5){if(!mttl_schedule_unpack(body+n,&tmp.schedule))goto done;n+=50;}
+     if(body[0]>=6)tmp.button_lock=body[n++];
+-    if(body[0]==7)for(i=0;i<4;i++){tmp.timer_minutes[i]=(uint16_t)body[n]|((uint16_t)body[n+1]<<8);n+=2;}
++    if(body[0]>=7)for(i=0;i<4;i++){tmp.timer_minutes[i]=(uint16_t)body[n]|((uint16_t)body[n+1]<<8);n+=2;}
++    /* v4..v7 records stop before this point: per-channel limits keep defaults. */
++    if(body[0]>=8)for(i=0;i<4;i++){tmp.protection.channel_current_ma[i]=(uint16_t)body[n]|((uint16_t)body[n+1]<<8);n+=2;}
+     if(n!=size||!mttl_settings_valid(&tmp))goto done;
+     *out=tmp;result=1;
+ done:for(i=0;i<sizeof(tmp);i++)wipe[i]=0;return result;
+@@ -100,7 +105,7 @@ size_t mttl_settings_storage_pack(const mttl_settings *s,uint8_t *out,size_t cap
+ int mttl_settings_storage_unpack(const uint8_t *body,size_t size,mttl_settings *out){
+     mttl_settings tmp;size_t n,i,j;int ok=0;volatile uint8_t *wipe=(volatile uint8_t *)&tmp;
+     if(!body||!out||!size)return 0;
+-    if(body[0]==1||body[0]==4||body[0]==5||body[0]==6||body[0]==7)return mttl_settings_unpack(body,size,out);
++    if(body[0]==1||body[0]==4||body[0]==5||body[0]==6||body[0]==7||body[0]==8)return mttl_settings_unpack(body,size,out);
+     if((body[0]!=2&&body[0]!=3)||size<(body[0]==3?43:41)||size>MTTL_SETTINGS_BODY_MAX)return 0;
+     n=(size_t)body[1]|((size_t)body[2]<<8);if(n!=size-(body[0]==3?38:36))return 0;
+     if(!mttl_settings_unpack(body+3,n,&tmp))goto done;
+diff --git a/source/standalone/host_test/protection_settings_test.c b/source/standalone/host_test/protection_settings_test.c
+new file mode 100644
+index 0000000..be56c9f
+--- /dev/null
++++ b/source/standalone/host_test/protection_settings_test.c
+@@ -0,0 +1,333 @@
++/* Host-side regression test for the two modules whose defects are silent on the
++ * device: protection.c (trip logic, units, confirmation) and settings.c (the
++ * versioned codec that owns the stored Wi-Fi/MQTT credentials).
++ *
++ * Build with source/standalone/host_test/run.sh. Nothing in the firmware build
++ * references this file; the on-target selftest.c stays as it is.
++ */
++#include <stdio.h>
++#include <string.h>
++#include "protection.h"
++#include "settings.h"
++
++static unsigned total, failures;
++#define CHECK(x) do{total++;if(!(x)){failures++;printf("FAIL %s:%d: %s\n",__FILE__,__LINE__,#x);}}while(0)
++
++/* Older layouts for a version byte, in bytes, taken from mttl_settings_unpack. */
++static size_t older_tail(uint8_t version){
++    switch(version){case 1:return 0;case 4:return 7;case 5:return 57;case 6:return 58;case 7:return 66;case 8:return 74;}
++    return 74;
++}
++/* Re-cut a packed v8 body to look like a record written by an older firmware. */
++static size_t legacy(const uint8_t *v8,size_t n,uint8_t version,uint8_t *out){
++    size_t size=n-(74-older_tail(version));
++    memcpy(out,v8,size);out[0]=version;return size;
++}
++
++/* Field-by-field so struct padding can never make this test lie. */
++static int same_protection(const mttl_protection_config *x,const mttl_protection_config *y){
++    unsigned i;
++    if(x->temperature_c!=y->temperature_c||x->current_ma!=y->current_ma||x->power_w!=y->power_w||x->enabled!=y->enabled)return 0;
++    for(i=0;i<MTTL_PROTECTION_CHANNELS;i++)if(x->channel_current_ma[i]!=y->channel_current_ma[i])return 0;
++    return 1;
++}
++
++static void test_protection_aggregate(void){
++    mttl_protection_config c;mttl_protection_state p;
++    memset(&p,0,sizeof(p));mttl_protection_default(&c);
++    CHECK(mttl_protection_valid(&c));
++    CHECK(c.enabled==7);
++    CHECK(c.temperature_c==90&&c.current_ma==16000&&c.power_w==3000);
++    CHECK(c.channel_current_ma[0]==16000&&c.channel_current_ma[3]==16000);
++    /* Limits are inclusive (never trips at the limit itself). */
++    CHECK(!mttl_protection_round(&p,&c,7,900,16000,3000000,0));
++    CHECK(mttl_protection_round(&p,&c,7,901,0,0,0)==MTTL_PROTECTION_REASON_TEMPERATURE);
++    /* Aggregate current and power need two consecutive over-limit rounds. */
++    memset(&p,0,sizeof(p));
++    CHECK(!mttl_protection_round(&p,&c,7,0,16001,3000001,0)&&p.current_count==1&&p.power_count==1);
++    CHECK(mttl_protection_round(&p,&c,7,0,16001,3000001,0)==(MTTL_PROTECTION_REASON_CURRENT|MTTL_PROTECTION_REASON_POWER));
++    CHECK(!p.current_count&&!p.power_count);
++    /* A third over-limit round restarts the confirmation, it does not re-trip. */
++    CHECK(!mttl_protection_round(&p,&c,7,0,16001,3000001,0)&&p.current_count==1);
++    /* A one-round recovery clears the pending confirmation. */
++    memset(&p,0,sizeof(p));
++    CHECK(!mttl_protection_round(&p,&c,7,0,16001,3000001,0)&&p.current_count==1);
++    CHECK(!mttl_protection_round(&p,&c,7,0,16000,0,0)&&!p.current_count);
++    /* Aggregate power is stored in W and sampled in mW: exactly at the limit
++     * must never trip. */
++    memset(&p,0,sizeof(p));
++    CHECK(!mttl_protection_round(&p,&c,4,0,0,3000000,0));
++    CHECK(!mttl_protection_round(&p,&c,4,0,0,3000000,0)&&!p.power_count);
++    CHECK(!mttl_protection_round(&p,&c,4,0,0,3000001,0));
++    CHECK(mttl_protection_round(&p,&c,4,0,0,3000001,0)==MTTL_PROTECTION_REASON_POWER);
++    /* Stale readings report an error and never trip. */
++    memset(&p,0,sizeof(p));
++    CHECK(!mttl_protection_round(&p,&c,1,0,16001,3000001,0));
++    CHECK(p.error_mask==(MTTL_PROTECTION_ENABLE_CURRENT|MTTL_PROTECTION_ENABLE_POWER));
++    CHECK(!p.current_count&&!p.power_count);
++    memset(&p,0,sizeof(p));
++    CHECK(!mttl_protection_round(&p,&c,0,9999,99999,9999999,0));
++    CHECK(p.error_mask==7); /* Only enabled limits are reported, never the others. */
++    c.enabled=MTTL_PROTECTION_ENABLE_ALL;memset(&p,0,sizeof(p));
++    CHECK(!mttl_protection_round(&p,&c,0,0,0,0,0)&&p.error_mask==MTTL_PROTECTION_ENABLE_ALL);
++    c.enabled=7;
++    /* Disabled limits never trip and never report. */
++    c.enabled=0;
++    CHECK(!mttl_protection_round(&p,&c,7,9999,99999,9999999,0)&&!p.error_mask);
++    /* Negative inputs mean "no reading this round". */
++    mttl_protection_default(&c);memset(&p,0,sizeof(p));
++    CHECK(!mttl_protection_round(&p,&c,7,-1,-1,-1,0)&&!p.current_count&&!p.power_count);
++}
++
++static void test_protection_bounds(void){
++    mttl_protection_config c;unsigned i;mttl_protection_default(&c);
++    CHECK(mttl_protection_valid(&c));
++    c.temperature_c=49;CHECK(!mttl_protection_valid(&c));
++    c.temperature_c=50;CHECK(mttl_protection_valid(&c));
++    c.temperature_c=91;CHECK(!mttl_protection_valid(&c));
++    c.temperature_c=90;
++    c.current_ma=999;CHECK(!mttl_protection_valid(&c));
++    c.current_ma=1000;CHECK(mttl_protection_valid(&c));
++    c.current_ma=16001;CHECK(!mttl_protection_valid(&c));
++    c.current_ma=16000;
++    c.power_w=99;CHECK(!mttl_protection_valid(&c));
++    c.power_w=100;CHECK(mttl_protection_valid(&c));
++    c.power_w=3001;CHECK(!mttl_protection_valid(&c));
++    c.power_w=3000;
++    /* Every settings v8 enable bit is accepted, and nothing above it is. */
++    c.enabled=MTTL_PROTECTION_ENABLE_ALL;CHECK(mttl_protection_valid(&c));
++    c.enabled=MTTL_PROTECTION_ENABLE_ALL+1;CHECK(!mttl_protection_valid(&c));
++    c.enabled=0;CHECK(mttl_protection_valid(&c));
++    mttl_protection_default(&c);
++    for(i=0;i<MTTL_PROTECTION_CHANNELS;i++){
++        c.channel_current_ma[i]=999;CHECK(!mttl_protection_valid(&c));c.channel_current_ma[i]=1000;
++        c.channel_current_ma[i]=16001;CHECK(!mttl_protection_valid(&c));c.channel_current_ma[i]=16000;
++    }
++    CHECK(mttl_protection_valid(&c));
++    CHECK(!mttl_protection_valid(0));
++}
++
++static void test_protection_per_channel(void){
++    mttl_protection_config c;mttl_protection_state p;int32_t ci[4]={0,0,0,0};
++    /* Overcurrent on one outlet only. */
++    mttl_protection_default(&c);memset(&p,0,sizeof(p));
++    c.enabled=MTTL_PROTECTION_ENABLE_CHANNEL_CURRENT;c.channel_current_ma[2]=1000;ci[2]=1001;
++    CHECK(!mttl_protection_round(&p,&c,2|4,0,0,0,ci)&&!p.channel_mask);
++    CHECK(mttl_protection_round(&p,&c,2|4,0,0,0,ci)==MTTL_PROTECTION_REASON_CURRENT);
++    CHECK(p.channel_mask==(1u<<2));
++    /* Recovery resets the per-channel confirmation. */
++    ci[2]=1000;
++    CHECK(!mttl_protection_round(&p,&c,2|4,0,0,0,ci)&&!p.channel_current_count[2]);
++    /* A round that read fewer than four channels has no per-channel opinion. */
++    ci[2]=9999;
++    CHECK(!mttl_protection_round(&p,&c,2|4,0,0,0,0));
++    CHECK(!mttl_protection_round(&p,&c,2|4,0,0,0,0)&&!p.channel_current_count[2]);
++    CHECK(p.channel_mask==(1u<<2)); /* Attribution stays with the last trip. */
++    /* Clearing the enable bit stops judging; the last trip stays reported. */
++    c.enabled=0;
++    CHECK(!mttl_protection_round(&p,&c,2|4,0,0,0,ci)&&p.channel_mask==(1u<<2));
++    /* Two outlets at once report both. */
++    mttl_protection_default(&c);memset(&p,0,sizeof(p));
++    c.enabled=MTTL_PROTECTION_ENABLE_CHANNEL_CURRENT;
++    c.channel_current_ma[0]=1000;c.channel_current_ma[1]=1000;ci[0]=1001;ci[1]=1001;
++    CHECK(!mttl_protection_round(&p,&c,2|4,0,0,0,ci));
++    CHECK(mttl_protection_round(&p,&c,2|4,0,0,0,ci)==MTTL_PROTECTION_REASON_CURRENT&&p.channel_mask==3);
++    /* The per-channel limit is judged independently of the aggregate one. */
++    mttl_protection_default(&c);memset(&p,0,sizeof(p));
++    c.enabled=MTTL_PROTECTION_ENABLE_CURRENT|MTTL_PROTECTION_ENABLE_CHANNEL_CURRENT;
++    c.channel_current_ma[0]=1000;ci[0]=1001;
++    CHECK(!mttl_protection_round(&p,&c,2|4,0,1000,0,ci));
++    CHECK(mttl_protection_round(&p,&c,2|4,0,1000,0,ci)==MTTL_PROTECTION_REASON_CURRENT&&p.channel_mask==1);
++    /* Same round, but the aggregate limit trips first and separately. */
++    memset(&p,0,sizeof(p));
++    CHECK(!mttl_protection_round(&p,&c,2|4,0,16001,0,ci));
++    CHECK(mttl_protection_round(&p,&c,2|4,0,16001,0,ci)==MTTL_PROTECTION_REASON_CURRENT);
++    CHECK(p.channel_mask==1);
++    /* Per-channel protection inherits the same error reporting. */
++    memset(&p,0,sizeof(p));c.enabled=MTTL_PROTECTION_ENABLE_CHANNEL_CURRENT;
++    CHECK(!mttl_protection_round(&p,&c,4,0,0,0,0));
++    CHECK(p.error_mask==MTTL_PROTECTION_ENABLE_CHANNEL_CURRENT);
++    /* An invalid configuration is refused rather than acted on. */
++    c.channel_current_ma[0]=0;memset(&p,0,sizeof(p));
++    CHECK(!mttl_protection_round(&p,&c,2|4,0,0,0,ci)&&!p.reason);
++}
++
++static void test_settings_v8(void){
++    mttl_settings a,b;uint8_t body[512];size_t n,i;
++    mttl_settings_default(&a);
++    n=mttl_settings_pack(&a,body,sizeof(body));
++    /* Wire-format pin: 5 header + 11 length prefixes + 28 string bytes + v8 tail. */
++    CHECK(n==118);
++    CHECK(body[0]==8);
++    CHECK(mttl_settings_unpack(body,n,&b));
++    CHECK(same_protection(&a.protection,&b.protection));
++    CHECK(b.protection.enabled==7&&b.protection.channel_current_ma[2]==16000);
++    /* A short buffer must never emit a partial credential record. */
++    CHECK(!mttl_settings_pack(&a,body,n-1));
++    /* Distinct per-channel limits survive the round trip. */
++    mttl_settings_default(&a);
++    a.protection.enabled=MTTL_PROTECTION_ENABLE_ALL;
++    for(i=0;i<4;i++)a.protection.channel_current_ma[i]=(uint16_t)(1000+100*i);
++    n=mttl_settings_pack(&a,body,sizeof(body));
++    CHECK(n==118&&mttl_settings_unpack(body,n,&b));
++    for(i=0;i<4;i++)CHECK(b.protection.channel_current_ma[i]==1000+100*i);
++    CHECK(b.protection.enabled==MTTL_PROTECTION_ENABLE_ALL);
++    /* The web encoder must emit little-endian per-channel limits in channel order. */
++    mttl_settings_default(&a);
++    a.protection.channel_current_ma[0]=1000;a.protection.channel_current_ma[1]=0x1234;
++    a.protection.channel_current_ma[2]=0x3abc;a.protection.channel_current_ma[3]=16000;
++    n=mttl_settings_pack(&a,body,sizeof(body));
++    CHECK(n==118);
++    CHECK(body[n-8]==0xe8&&body[n-7]==0x03);
++    CHECK(body[n-6]==0x34&&body[n-5]==0x12);
++    CHECK(body[n-4]==0xbc&&body[n-3]==0x3a);
++    CHECK(body[n-2]==0x80&&body[n-1]==0x3e);
++    /* Storage wrapper keeps the device-owned checkpoint around a v8 body. */
++    mttl_settings_default(&a);
++    a.protection.channel_current_ma[1]=1234;
++    a.relay_known=15;a.relay_on=2;a.energy_valid=1;a.energy_wh[0]=1234;a.energy_raw[1]=99;
++    n=mttl_settings_storage_pack(&a,body,sizeof(body));
++    CHECK(n==118+38);
++    CHECK(mttl_settings_storage_unpack(body,n,&b));
++    CHECK(b.protection.channel_current_ma[1]==1234);
++    CHECK(b.relay_known==15&&b.relay_on==2&&b.energy_valid==1&&b.energy_wh[0]==1234&&b.energy_raw[1]==99);
++}
++
++static void test_settings_rejections(void){
++    mttl_settings a,b;uint8_t body[512],old[512];size_t n;
++    mttl_settings_default(&a);
++    a.protection.temperature_c=65;a.protection.current_ma=2300;a.protection.power_w=750;
++    a.protection.enabled=MTTL_PROTECTION_ENABLE_ALL;
++    a.protection.channel_current_ma[0]=1000;
++    n=mttl_settings_pack(&a,body,sizeof(body));
++    CHECK(n==118);
++    /* Defect guard: the version byte must move with the tail length. A v8 body
++     * relabelled as v7 is rejected instead of being silently mis-parsed. */
++    memcpy(old,body,n);old[0]=7;CHECK(!mttl_settings_unpack(old,n,&b));
++    memcpy(old,body,n);old[0]=8;CHECK(mttl_settings_unpack(old,n,&b)&&b.protection.channel_current_ma[0]==1000);
++    /* Unknown enable bits are refused, not masked off. */
++    memcpy(old,body,n);old[n-74]=16;CHECK(!mttl_settings_unpack(old,n,&b));
++    /* Per-channel limits are range checked like the aggregate pair. */
++    memcpy(old,body,n);old[n-8]=0xe7;old[n-7]=0x03;CHECK(!mttl_settings_unpack(old,n,&b)); /* 999 mA */
++    memcpy(old,body,n);old[n-8]=0xe8;old[n-7]=0x03;CHECK(mttl_settings_unpack(old,n,&b));  /* 1000 mA */
++    memcpy(old,body,n);old[n-8]=0x81;old[n-7]=0x3e;CHECK(!mttl_settings_unpack(old,n,&b)); /* 16001 mA */
++    /* A v8 body missing its per-channel tail is refused. */
++    CHECK(!mttl_settings_unpack(body,n-1,&b));
++    CHECK(!mttl_settings_unpack(body,n+1,&b));
++}
++
++static void test_settings_migration(void){
++    mttl_settings a,b;uint8_t body[512],old[512];size_t n,len;
++    /* Exactly the upgrade path of a device holding a v4..v7 record: aggregate
++     * limits are restored and the per-channel limits fall back to defaults. */
++    mttl_settings_default(&a);
++    a.protection.temperature_c=65;a.protection.current_ma=2300;a.protection.power_w=750;a.protection.enabled=14;
++    a.protection.channel_current_ma[0]=1000;a.protection.channel_current_ma[1]=2000;
++    a.protection.channel_current_ma[2]=3000;a.protection.channel_current_ma[3]=4000;
++    a.button_lock=5;a.timer_minutes[2]=30;
++    n=mttl_settings_pack(&a,body,sizeof(body));
++    CHECK(n==118);
++    /* v8 keeps everything. */
++    CHECK(mttl_settings_unpack(body,n,&b));
++    CHECK(b.protection.channel_current_ma[1]==2000&&b.timer_minutes[2]==30&&b.button_lock==5);
++    /* v4: no schedule, no lock, no timers, no per-channel limits. */
++    len=legacy(body,n,4,old);CHECK(len==n-67);CHECK(mttl_settings_unpack(old,len,&b));
++    CHECK(b.protection.temperature_c==65&&b.protection.current_ma==2300&&b.protection.power_w==750&&b.protection.enabled==14);
++    CHECK(b.protection.channel_current_ma[0]==16000&&b.protection.channel_current_ma[3]==16000&&!b.button_lock&&!b.timer_minutes[2]);
++    {mttl_schedule_config def;mttl_schedule_default(&def);CHECK(!memcmp(&b.schedule,&def,sizeof(def)));}
++    /* v5, v6, v7 all land on the same per-channel defaults. */
++    len=legacy(body,n,5,old);CHECK(len==n-17);CHECK(mttl_settings_unpack(old,len,&b)&&b.protection.channel_current_ma[3]==16000&&!b.button_lock);
++    len=legacy(body,n,6,old);CHECK(len==n-16);CHECK(mttl_settings_unpack(old,len,&b)&&b.protection.channel_current_ma[0]==16000&&b.button_lock==5&&!b.timer_minutes[2]);
++    len=legacy(body,n,7,old);CHECK(len==n-8);CHECK(mttl_settings_unpack(old,len,&b));
++    CHECK(b.protection.channel_current_ma[0]==16000&&b.protection.channel_current_ma[3]==16000);
++    CHECK(b.protection.temperature_c==65&&b.protection.current_ma==2300&&b.protection.power_w==750);
++    CHECK(b.protection.enabled==14&&b.button_lock==5&&b.timer_minutes[2]==30);
++    /* v1 predates protection entirely. */
++    len=legacy(body,n,1,old);CHECK(len==n-74);CHECK(mttl_settings_unpack(old,len,&b));
++    CHECK(b.protection.enabled==7&&b.protection.temperature_c==90&&b.protection.channel_current_ma[0]==16000&&!b.button_lock);
++    /* Rewriting a migrated record persists the per-channel defaults. */
++    n=mttl_settings_pack(&b,body,sizeof(body));
++    CHECK(n==118);
++    CHECK(mttl_settings_unpack(body,n,&a));
++    CHECK(a.protection.channel_current_ma[0]==16000&&a.protection.temperature_c==90);
++    /* Nothing in a migrated record lost the Wi-Fi or broker credentials. */
++    CHECK(!strcmp(b.device,"MTTL-W01")&&b.port==1883&&!strcmp(b.topic,"mttl"));
++}
++
++/* What the trip actually switches off, as opposed to what it blames. */
++static void test_protection_cut_policy(void){
++    mttl_protection_config c;mttl_protection_state p;int32_t ci[4]={0,0,0,0};
++    /* Per-channel overcurrent on one outlet cuts that outlet alone. */
++    mttl_protection_default(&c);memset(&p,0,sizeof(p));
++    c.enabled=MTTL_PROTECTION_ENABLE_CHANNEL_CURRENT;c.channel_current_ma[2]=1000;ci[2]=1001;
++    CHECK(!mttl_protection_round(&p,&c,6,0,0,0,ci)&&!p.cut_mask);
++    CHECK(mttl_protection_round(&p,&c,6,0,0,0,ci)==MTTL_PROTECTION_REASON_CURRENT);
++    CHECK(p.channel_mask==4&&p.cut_mask==4);
++    /* Two outlets at once cut exactly those two. */
++    mttl_protection_default(&c);memset(&p,0,sizeof(p));
++    c.enabled=MTTL_PROTECTION_ENABLE_CHANNEL_CURRENT;
++    c.channel_current_ma[0]=1000;c.channel_current_ma[3]=1000;ci[0]=1001;ci[3]=1001;ci[2]=0;
++    CHECK(!mttl_protection_round(&p,&c,6,0,0,0,ci));
++    CHECK(mttl_protection_round(&p,&c,6,0,0,0,ci)==MTTL_PROTECTION_REASON_CURRENT);
++    CHECK(p.channel_mask==9&&p.cut_mask==9);
++    /* The aggregate limit is not attributable: it always cuts everything. */
++    mttl_protection_default(&c);memset(&p,0,sizeof(p));
++    c.enabled=MTTL_PROTECTION_ENABLE_CURRENT;
++    CHECK(!mttl_protection_round(&p,&c,2,0,16001,0,0)&&!p.cut_mask);
++    CHECK(mttl_protection_round(&p,&c,2,0,16001,0,0)==MTTL_PROTECTION_REASON_CURRENT);
++    CHECK(p.cut_mask==MTTL_PROTECTION_CUT_ALL&&!p.channel_mask);
++    mttl_protection_default(&c);memset(&p,0,sizeof(p));
++    c.enabled=MTTL_PROTECTION_ENABLE_POWER;
++    CHECK(!mttl_protection_round(&p,&c,4,0,0,3000001,0));
++    CHECK(mttl_protection_round(&p,&c,4,0,0,3000001,0)==MTTL_PROTECTION_REASON_POWER);
++    CHECK(p.cut_mask==MTTL_PROTECTION_CUT_ALL);
++    /* The dangerous mix: an aggregate trip and a per-channel trip land in the
++     * same round, so the outlet is attributed but the whole strip must go. */
++    mttl_protection_default(&c);memset(&p,0,sizeof(p));
++    c.enabled=MTTL_PROTECTION_ENABLE_CURRENT|MTTL_PROTECTION_ENABLE_CHANNEL_CURRENT;
++    c.current_ma=1000;c.channel_current_ma[0]=1000;ci[0]=1001;
++    CHECK(!mttl_protection_round(&p,&c,6,0,1001,0,ci)&&!p.cut_mask);
++    CHECK(mttl_protection_round(&p,&c,6,0,1001,0,ci)==MTTL_PROTECTION_REASON_CURRENT);
++    CHECK(p.channel_mask==1&&p.cut_mask==MTTL_PROTECTION_CUT_ALL);
++    /* A single outlet that reads too hot cuts that outlet only. */
++    mttl_protection_default(&c);memset(&p,0,sizeof(p));
++    CHECK(!mttl_protection_temperature(&p,&c,3,1,800)&&!p.cut_mask);
++    CHECK(mttl_protection_temperature(&p,&c,3,1,901)==MTTL_PROTECTION_REASON_TEMPERATURE);
++    CHECK(p.channel_mask==8&&p.cut_mask==8);
++    /* Nothing else may produce temperature there, but if the aggregate round
++     * ever reports one it carries no channel, so it cuts everything. */
++    mttl_protection_default(&c);memset(&p,0,sizeof(p));
++    CHECK(mttl_protection_round(&p,&c,7,901,0,0,0)==MTTL_PROTECTION_REASON_TEMPERATURE);
++    CHECK(p.cut_mask==MTTL_PROTECTION_CUT_ALL);
++    /* Disabled limits and stale readings never set a cut. */
++    mttl_protection_default(&c);memset(&p,0,sizeof(p));
++    c.enabled=0;
++    CHECK(!mttl_protection_round(&p,&c,7,9999,99999,9999999,0)&&!p.cut_mask);
++    CHECK(!mttl_protection_temperature(&p,&c,1,1,9999)&&!p.cut_mask);
++    /* A trip must never be a no-op at the relay: whenever a reason is reported
++     * the caller always has at least one relay to switch off. */
++    mttl_protection_default(&c);memset(&p,0,sizeof(p));
++    c.enabled=MTTL_PROTECTION_ENABLE_ALL;
++    c.temperature_c=50;c.current_ma=1000;c.power_w=100;
++    c.channel_current_ma[0]=1000;c.channel_current_ma[1]=1000;
++    c.channel_current_ma[2]=1000;c.channel_current_ma[3]=1000;
++    ci[0]=ci[1]=ci[2]=ci[3]=1001;
++    CHECK(mttl_protection_temperature(&p,&c,0,1,501)&&p.cut_mask);
++    CHECK(mttl_protection_round(&p,&c,7,501,1001,100001,ci)&&p.cut_mask);
++    /* A trip restarts the confirmation counts but leaves the last cut on
++     * record, and a fresh trip always produces a fresh non-empty cut. */
++    CHECK(!mttl_protection_round(&p,&c,6,0,1001,0,ci)&&p.cut_mask);
++    CHECK(mttl_protection_round(&p,&c,6,0,1001,0,ci)&&p.cut_mask);
++}
++
++int main(void){
++    test_protection_aggregate();
++    test_protection_bounds();
++    test_protection_per_channel();
++    test_protection_cut_policy();
++    test_settings_v8();
++    test_settings_rejections();
++    test_settings_migration();
++    printf("%s: %u checks, %u failed\n",failures?"FAILED":"PASSED",total,failures);
++    return failures?1:0;
++}
+diff --git a/source/standalone/host_test/run.sh b/source/standalone/host_test/run.sh
+new file mode 100755
+index 0000000..7c75742
+--- /dev/null
++++ b/source/standalone/host_test/run.sh
+@@ -0,0 +1,27 @@
++#!/bin/sh
++# Host-side unit test for the standalone firmware's protection and settings
++# modules. Pure C, no device, no cross toolchain, no Python.
++#
++#   sh source/standalone/host_test/run.sh
++#
++# Exit status is non-zero when any check fails.
++set -e
++CC=${CC:-cc}
++HERE=$(cd "$(dirname "$0")" && pwd)
++FW=$HERE/../firmware
++OUT=${TMPDIR:-/tmp}/mttl_host_test
++mkdir -p "$OUT"
++# The firmware and settings modules keep upstream's dense one-liner style, which
++# GCC 12+ reports as -Wmisleading-indentation ("this 'if' clause does not guard
++# ...", e.g. "if(!(valid&1))error|=X;"). The compiler, not the style, is what
++# varies here, so probe for the option and use it only where it is accepted;
++# older GCC and clang simply skip the probe.
++EXTRA=
++if "$CC" -Werror -Wno-misleading-indentation -x c -c /dev/null -o /dev/null >/dev/null 2>&1; then
++    EXTRA=-Wno-misleading-indentation
++fi
++"$CC" -std=c99 -Wall -Wextra -Werror $EXTRA -O1 \
++    -I"$FW" \
++    "$HERE/protection_settings_test.c" "$FW/protection.c" "$FW/settings.c" "$FW/scheduler.c" \
++    -o "$OUT/protection_settings_test"
++exec "$OUT/protection_settings_test"
+diff --git a/source/standalone/ui/i18n.js b/source/standalone/ui/i18n.js
+index 72914a9..ce77a63 100644
+--- a/source/standalone/ui/i18n.js
++++ b/source/standalone/ui/i18n.js
+@@ -1,8 +1,9 @@
+ (function(root){
+   'use strict';
+   const ko={
+-    protection:'보호 설정',protectTemperature:'고온 차단 · 채널 중 최고 온도',protectCurrent:'과전류 차단 · 보정 후 전체 전류',protectPower:'고전력 차단 · 전체 전력',applyProtection:'적용',
+-    protectionHint:'온도는 첫 초과, 전체 전류·전력은 2회 연속 초과 시 전체 OFF합니다. 측정 주기는 약 10초입니다.',protectionNote:'자동 재켜기·잠금은 없습니다. 센서 읽기 실패는 오류만 표시합니다. 하드웨어 안전 보호 장치를 대체하지 않습니다.',
++    protection:'보호 설정',protectTemperature:'고온 차단 · 채널 중 최고 온도',protectCurrent:'과전류 차단 · 보정 후 전체 전류',protectPower:'고전력 차단 · 전체 전력',
++    protectChannelCurrent:'채널별 과전류 차단 · 콘센트마다 개별 한계',applyProtection:'적용',
++    protectionHint:'채널별 전류·온도 초과는 해당 콘센트만, 전체 전류·전력 초과는 전체 OFF합니다(전류·전력은 2회 연속). 측정 주기는 약 10초입니다.',protectionNote:'자동 재켜기·잠금은 없습니다. 센서 읽기 실패는 오류만 표시합니다. 하드웨어 안전 보호 장치를 대체하지 않습니다.',
+     title:'MTTL-W01 독립 펌웨어 화면 초안',simulation:'PC 모의 화면',language:'언어',
+     note:'버튼과 설정 흐름을 확인하는 화면 초안입니다. 아래 값은 가상 데이터이며 실제 멀티탭·Wi-Fi·MQTT에는 연결하지 않습니다.',
+     menu:'메뉴',device:'멀티탭',wifi:'Wi-Fi 설정',mqtt:'HA · MQTT',firmware:'펌웨어',logs:'로그',currentVersion:'현재 버전',
+@@ -38,8 +39,9 @@
+     log_fwPassed:'펌웨어 파일 검사 통과',log_fwFailed:'펌웨어 파일 검사 실패',log_fwComplete:'펌웨어 업데이트 모의 완료',log_names:'기기·채널 이름 변경'
+   };
+   const en={
+-    protection:'Protection',protectTemperature:'Temperature · highest channel',protectCurrent:'Overcurrent · corrected total current',protectPower:'Power · total power',applyProtection:'Apply',
+-    protectionHint:'All OFF on the first high temperature reading, or two consecutive high total current/power rounds. Each channel is sampled about every 10 seconds.',protectionNote:'No automatic ON or lock. Sensor failures show errors only. This does not replace hardware safety protection.',
++    protection:'Protection',protectTemperature:'Temperature · highest channel',protectCurrent:'Overcurrent · corrected total current',protectPower:'Power · total power',
++    protectChannelCurrent:'Per-channel overcurrent · individual limit for each outlet',applyProtection:'Apply',
++    protectionHint:'A per-channel current or temperature trip cuts that outlet only; total current/power cuts the whole strip (two consecutive rounds for both). Each channel is sampled about every 10 seconds.',protectionNote:'No automatic ON or lock. Sensor failures show errors only. This does not replace hardware safety protection.',
+     title:'MTTL-W01 standalone firmware preview',simulation:'PC simulation',language:'Language',
+     note:'A preview of controls and setup. Values are simulated; this page does not connect to a power strip, Wi-Fi or MQTT.',
+     menu:'Menu',device:'Power strip',wifi:'Wi-Fi setup',mqtt:'HA · MQTT',firmware:'Firmware',logs:'Logs',currentVersion:'Current version',
+diff --git a/source/standalone/ui/index.html b/source/standalone/ui/index.html
+index 7344f74..58b50c5 100644
+--- a/source/standalone/ui/index.html
++++ b/source/standalone/ui/index.html
+@@ -76,6 +76,11 @@
+       <div class="sensor protection-slider"><input id="protect-current" type="range" min="1" max="16" step="0.1" value="16"><b id="protect-current-value">16.0 A</b></div>
+       <label><input id="protect-power-enabled" type="checkbox" checked><span data-i18n="protectPower">고전력 차단 · 전체 전력</span></label>
+       <div class="sensor protection-slider"><input id="protect-power" type="range" min="100" max="3000" step="1" value="3000"><b id="protect-power-value">3000 W</b></div>
++      <label><input id="protect-channel-current-enabled" type="checkbox"><span data-i18n="protectChannelCurrent">채널별 과전류 차단 · 콘센트마다 개별 한계</span></label>
++      <div class="sensor protection-slider"><input id="protect-channel-current-1" type="range" min="1" max="16" step="0.1" value="16"><b id="protect-channel-current-value-1">16.0 A</b></div>
++      <div class="sensor protection-slider"><input id="protect-channel-current-2" type="range" min="1" max="16" step="0.1" value="16"><b id="protect-channel-current-value-2">16.0 A</b></div>
++      <div class="sensor protection-slider"><input id="protect-channel-current-3" type="range" min="1" max="16" step="0.1" value="16"><b id="protect-channel-current-value-3">16.0 A</b></div>
++      <div class="sensor protection-slider"><input id="protect-channel-current-4" type="range" min="1" max="16" step="0.1" value="16"><b id="protect-channel-current-value-4">16.0 A</b></div>
+       <div class="row"><button id="protection-apply" class="primary" data-i18n="applyProtection" disabled>적용</button></div><div id="protection-save-status" class="status" role="status"></div>
+     </form><div id="protection-state" class="status" role="status"></div><p class="muted" data-i18n="protectionNote">자동 재켜기·잠금은 없습니다. 센서 읽기 실패는 오류만 표시합니다. 하드웨어 안전 보호 장치를 대체하지 않습니다.</p></div>
+   </section>
+diff --git a/source/standalone/ui/live.js b/source/standalone/ui/live.js
+index 805907b..7ab5706 100644
+--- a/source/standalone/ui/live.js
++++ b/source/standalone/ui/live.js
+@@ -64,16 +64,27 @@
+   function settingsBody(c,password=''){
+     const port=Number(c.port);if(!Number.isInteger(port)||port<1||port>65535)throw Error('Port');
+     const fields=[c.device,...c.channels,'','',c.broker,c.user,password,c.topic];if(fields.length!==11)throw Error('Channels');
+-    const bytes=[7,c.language,c.enabled?1:0,port&255,port>>>8];const limits=[64,64,64,64,64,32,64,253,64,64,64];
++    const bytes=[8,c.language,c.enabled?1:0,port&255,port>>>8];const limits=[64,64,64,64,64,32,64,253,64,64,64];
+     fields.forEach((field,i)=>{const data=new TextEncoder().encode(field||'');if(data.length>limits[i])throw Error('Length');bytes.push(data.length,...data);});
+     const p=c.protection||{enabled:7,temperature:90,current:16000,power:3000};
+-    if(!Number.isInteger(p.enabled)||p.enabled<0||p.enabled>7||!Number.isInteger(p.temperature)||p.temperature<50||p.temperature>90||!Number.isInteger(p.current)||p.current<1000||p.current>16000||!Number.isInteger(p.power)||p.power<100||p.power>3000)throw Error('Protection');
++    if(!Number.isInteger(p.enabled)||p.enabled<0||p.enabled>15||!Number.isInteger(p.temperature)||p.temperature<50||p.temperature>90||!Number.isInteger(p.current)||p.current<1000||p.current>16000||!Number.isInteger(p.power)||p.power<100||p.power>3000)throw Error('Protection');
+     bytes.push(p.enabled,p.temperature&255,p.temperature>>>8,p.current&255,p.current>>>8,p.power&255,p.power>>>8);
+-    const hex=c.schedule_hex||MttlSchedule.encode(MttlSchedule.defaults());MttlSchedule.decode(hex);bytes.push(...hex.match(/../g).map(x=>parseInt(x,16)));const locks=c.button_lock||0;if(!Number.isInteger(locks)||locks<0||locks>15)throw Error('Lock');bytes.push(locks);const timers=c.timer_minutes||[0,0,0,0];MttlTimer.valid(timers,MttlSchedule.decode(hex));timers.forEach(m=>bytes.push(m&255,m>>>8));return Uint8Array.from(bytes);
++    const hex=c.schedule_hex||MttlSchedule.encode(MttlSchedule.defaults());MttlSchedule.decode(hex);bytes.push(...hex.match(/../g).map(x=>parseInt(x,16)));const locks=c.button_lock||0;if(!Number.isInteger(locks)||locks<0||locks>15)throw Error('Lock');bytes.push(locks);const timers=c.timer_minutes||[0,0,0,0];MttlTimer.valid(timers,MttlSchedule.decode(hex));timers.forEach(m=>bytes.push(m&255,m>>>8));
++    /* Settings v8 tail: four per-channel current limits in mA, in channel order. */
++    const channels=Array.isArray(p.channel_current)&&p.channel_current.length===4?p.channel_current:[16000,16000,16000,16000];
++    for(const v of channels){if(!Number.isInteger(v)||v<1000||v>16000)throw Error('Protection');bytes.push(v&255,v>>>8);}
++    return Uint8Array.from(bytes);
++  }
++async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(snapshot?.state))throw Error('Not ready');const body=settingsBody(c,password);try{try{await request('/api/config',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-MTTL-Keep-Password':keep?'1':'0'},body});}catch(_){/* A lost POST response does not prove the write failed. Never repost. */}for(let n=0;n<12;n++){await new Promise(resolve=>setTimeout(resolve,250));let saved;try{saved=await request('/api/config');}catch(_){continue;}if(saved.persistent&&(saved.button_lock||0)===(c.button_lock||0)&&saved.device===c.device&&JSON.stringify(saved.channels)===JSON.stringify(c.channels)&&saved.language===c.language&&(!c.timer_minutes||JSON.stringify(saved.timer_minutes)===JSON.stringify(c.timer_minutes))&&saved.broker===c.broker&&saved.port===c.port&&saved.user===c.user&&saved.enabled===c.enabled&&(!c.schedule_hex||saved.schedule_hex===c.schedule_hex)&&(!c.protection||['enabled','temperature','current','power'].every(k=>saved.protection?.[k]===c.protection[k])&&JSON.stringify(saved.protection?.channel_current)===JSON.stringify(c.protection.channel_current))){configuration=saved;return true;}}throw Error('Flash save not confirmed');}finally{body.fill(0);}}
++  function loadProtection(){const p=configuration?.protection||{},e=Number.isInteger(p.enabled)?p.enabled:7;
++    ['temperature','current','power'].forEach((k,i)=>{const v=Number.isInteger(p[k])?p[k]:{temperature:90,current:16000,power:3000}[k];el('protect-'+k).value=String(k==='current'?v/1000:v);el('protect-'+k+'-enabled').checked=!!(e&(1<<i));});
++    const pick=(list,i,fallback)=>Array.isArray(list)&&Number.isInteger(list[i])?list[i]:fallback;
++    for(let i=0;i<4;i++){el('protect-channel-current-'+(i+1)).value=String(pick(p.channel_current,i,16000)/1000);}
++    el('protect-channel-current-enabled').checked=!!(e&8);protectionValues();}
++  function protectionValues(){
++    ['temperature','current','power'].forEach(k=>{el('protect-'+k+'-value').textContent=(k==='current'?Number(el('protect-'+k).value).toFixed(1):el('protect-'+k).value)+' '+({temperature:'°C',current:'A',power:'W'}[k]);});
++    for(let i=0;i<4;i++)el('protect-channel-current-value-'+(i+1)).textContent=name(i)+' '+Number(el('protect-channel-current-'+(i+1)).value).toFixed(1)+' A';
+   }
+-async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(snapshot?.state))throw Error('Not ready');const body=settingsBody(c,password);try{try{await request('/api/config',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-MTTL-Keep-Password':keep?'1':'0'},body});}catch(_){/* A lost POST response does not prove the write failed. Never repost. */}for(let n=0;n<12;n++){await new Promise(resolve=>setTimeout(resolve,250));let saved;try{saved=await request('/api/config');}catch(_){continue;}if(saved.persistent&&(saved.button_lock||0)===(c.button_lock||0)&&saved.device===c.device&&JSON.stringify(saved.channels)===JSON.stringify(c.channels)&&saved.language===c.language&&(!c.timer_minutes||JSON.stringify(saved.timer_minutes)===JSON.stringify(c.timer_minutes))&&saved.broker===c.broker&&saved.port===c.port&&saved.user===c.user&&saved.enabled===c.enabled&&(!c.schedule_hex||saved.schedule_hex===c.schedule_hex)&&(!c.protection||['enabled','temperature','current','power'].every(k=>saved.protection?.[k]===c.protection[k]))){configuration=saved;return true;}}throw Error('Flash save not confirmed');}finally{body.fill(0);}}
+-  function loadProtection(){const p=configuration?.protection||{enabled:7,temperature:90,current:16000,power:3000};['temperature','current','power'].forEach((k,i)=>{el('protect-'+k).value=String(k==='current'?p[k]/1000:p[k]);el('protect-'+k+'-enabled').checked=!!(p.enabled&(1<<i));});protectionValues();}
+-  function protectionValues(){['temperature','current','power'].forEach(k=>{el('protect-'+k+'-value').textContent=(k==='current'?Number(el('protect-'+k).value).toFixed(1):el('protect-'+k).value)+' '+({temperature:'°C',current:'A',power:'W'}[k]);});}
+   function hexText(hex){if(typeof hex!=='string'||hex.length>64||!/^(?:[0-9a-f]{2})*$/.test(hex))return '';return new TextDecoder().decode(Uint8Array.from(hex.match(/../g)||[],x=>parseInt(x,16)));}
+   async function request(path,options={}){
+     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),5000);
+@@ -85,7 +96,7 @@ async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(sn
+     timerEditor.ready();
+     observe();
+     el('protection-apply').disabled=!configuration||![2,5].includes(snapshot?.state)||protectionSaving;
+-    {const p=deviceSnapshot?.protection,names=language==='en'?['Temperature','Current','Power']:['온도','전류','전력'];const items=bits=>names.filter((_,i)=>bits&(1<<i)).join(', ');el('protection-state').textContent=p?((language==='en'?'Last trip: ':'최근 차단: ')+(p.reason?items(p.reason):(language==='en'?'None':'없음'))+' · '+(language==='en'?'Sensor errors: ':'센서 오류: ')+(p.error?items(p.error):(language==='en'?'None':'없음'))):t('apiUnavailable');}
++    {const p=deviceSnapshot?.protection,names=language==='en'?['Temperature','Current','Power']:['온도','전류','전력'];const items=bits=>names.filter((_,i)=>bits&(1<<i)).join(', ');const where=bits=>{const list=[];for(let i=0;i<4;i++)if(bits&(1<<i))list.push(name(i));return list.length?' · '+list.join(', '):'';};el('protection-state').textContent=p?((language==='en'?'Last trip: ':'최근 차단: ')+(p.reason?items(p.reason)+where(p.channel_mask):(language==='en'?'None':'없음'))+' · '+(language==='en'?'Sensor errors: ':'센서 오류: ')+(p.error?items(p.error):(language==='en'?'None':'없음'))):t('apiUnavailable');}
+     ['all-on','all-off'].forEach(id=>el(id).disabled=controlBusy||!deviceSnapshot?.hardware_ready||!snapshot?.hardware_ready||snapshot?.state!==5);
+     el('device-name').textContent=name(-1);
+     for(let i=0;i<4;i++){
+@@ -168,9 +179,13 @@ async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(sn
+ const timerEditor=MttlTimer.mount({language:()=>language,available:()=>!!configuration&&[2,5].includes(snapshot?.state),schedule:()=>MttlSchedule.decode(configuration?.schedule_hex||MttlSchedule.encode(MttlSchedule.defaults())),save:async minutes=>{const fresh=await request('/api/config');MttlTimer.valid(minutes,MttlSchedule.decode(fresh.schedule_hex||MttlSchedule.encode(MttlSchedule.defaults())));await storeConfiguration({...fresh,timer_minutes:minutes});scheduleEditor.translate();drawTimers();}});
+   setTimeout(timerClock,999);
+   ['temperature','current','power'].forEach(k=>el('protect-'+k).oninput=protectionValues);
++  for(let i=0;i<4;i++)el('protect-channel-current-'+(i+1)).oninput=protectionValues;
+   el('protection-form').onsubmit=async event=>{event.preventDefault();if(!configuration||protectionSaving)return;
+-    const p={enabled:0,temperature:Number(el('protect-temperature').value),current:Math.round(Number(el('protect-current').value)*1000),power:Number(el('protect-power').value)};
+-    ['temperature','current','power'].forEach((k,i)=>{if(el('protect-'+k+'-enabled').checked)p.enabled|=1<<i;});protectionSaving=true;render();
++    const p={enabled:0,temperature:Number(el('protect-temperature').value),current:Math.round(Number(el('protect-current').value)*1000),power:Number(el('protect-power').value),channel_current:[]};
++    ['temperature','current','power'].forEach((k,i)=>{if(el('protect-'+k+'-enabled').checked)p.enabled|=1<<i;});
++    if(el('protect-channel-current-enabled').checked)p.enabled|=8;
++    for(let i=0;i<4;i++)p.channel_current.push(Math.round(Number(el('protect-channel-current-'+(i+1)).value)*1000));
++    protectionSaving=true;render();
+     try{await storeConfiguration({...configuration,protection:p});el('protection-save-status').textContent=language==='en'?'Saved in device flash':'기기 플래시에 저장했습니다.';}catch(_){el('protection-save-status').textContent=language==='en'?'Save failed; settings not confirmed':'저장 실패 · 적용 여부를 확인하지 못했습니다.';}finally{protectionSaving=false;render();}
+   };
+   document.querySelectorAll('#mqtt-form input,#mqtt-form button').forEach(node=>node.disabled=true);

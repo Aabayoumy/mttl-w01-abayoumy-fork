@@ -1,0 +1,72 @@
+diff --git a/source/standalone/build_network_test.py b/source/standalone/build_network_test.py
+index 6e13de2..29d09fa 100644
+--- a/source/standalone/build_network_test.py
++++ b/source/standalone/build_network_test.py
+@@ -16,7 +16,7 @@ def main():
+     out.mkdir(parents=True,exist_ok=True)
+     if ota:
+         sdk=out/'sdk';sdk.mkdir(parents=True,exist_ok=True)
+-        build_id=secrets.token_hex(8)
++        build_id=os.environ.get('MTTL_OTA_BUILD_ID','').strip() or secrets.token_hex(8)
+         import struct
+         identity=json.loads((ROOT/'boot_identity.json').read_text())
+         boot_size=identity['boot_size']
+diff --git a/source/standalone/ui/i18n.js b/source/standalone/ui/i18n.js
+index ddd402f..3ef47a1 100644
+--- a/source/standalone/ui/i18n.js
++++ b/source/standalone/ui/i18n.js
+@@ -3,7 +3,7 @@
+   const ko={
+     protection:'보호 설정',protectTemperature:'고온 차단 · 채널 중 최고 온도',protectCurrent:'과전류 차단 · 전체 전류 및 콘센트별 전류',protectPower:'고전력 차단 · 전체 전력',
+     applyProtection:'적용',
+-    protectionHint:'전류 한계는 전체 전류와 각 콘센트에 함께 적용됩니다. 한 콘센트가 한계를 넘으면 그 콘센트만 차단되고, 전체 전력 초과는 스트립 전체를 차단합니다. 온도 초과는 해당 콘센트만 차단합니다. 전류·전력은 2회 연속 초과 시 동작하며 측정 주기는 약 10초입니다.',protectionNote:'자동 재켜기·잠금은 없습니다. 센서 읽기 실패는 오류만 표시합니다. 하드웨어 안전 보호 장치를 대체하지 않습니다.',
++    protectionHint:'전류 한계는 전체 전류와 각 콘센트에 함께 적용됩니다. 한 콘센트가 한계를 넘으면 그 콘센트만 차단되고, 전체 전력 초과는 스트립 전체를 차단합니다. 온도 초과는 해당 콘센트만 차단합니다. 전류·전력은 2회 연속 초과 시 동작하며 측정 주기는 약 10초입니다.',
+     title:'MTTL-W01 독립 펌웨어 화면 초안',simulation:'PC 모의 화면',language:'언어',
+     note:'버튼과 설정 흐름을 확인하는 화면 초안입니다. 아래 값은 가상 데이터이며 실제 멀티탭·Wi-Fi·MQTT에는 연결하지 않습니다.',
+     menu:'메뉴',device:'멀티탭',wifi:'Wi-Fi 설정',mqtt:'HA · MQTT',firmware:'펌웨어',logs:'로그',currentVersion:'현재 버전',
+@@ -41,7 +41,7 @@
+   const en={
+     protection:'Protection',protectTemperature:'Temperature · highest channel',protectCurrent:'Overcurrent · total current and every outlet',protectPower:'Power · total power',
+     applyProtection:'Apply',
+-    protectionHint:'The current limit applies to the total and to every outlet on its own: an outlet over the limit is cut alone, while total power cuts the whole strip. A temperature trip cuts the blamed outlet. Current and power need two consecutive rounds; each channel is sampled about every 10 seconds.',protectionNote:'No automatic ON or lock. Sensor failures show errors only. This does not replace hardware safety protection.',
++    protectionHint:'The current limit applies to the total and to every outlet on its own: an outlet over the limit is cut alone, while total power cuts the whole strip. A temperature trip cuts the blamed outlet. Current and power need two consecutive rounds; each channel is sampled about every 10 seconds.',
+     title:'MTTL-W01 standalone firmware preview',simulation:'PC simulation',language:'Language',
+     note:'A preview of controls and setup. Values are simulated; this page does not connect to a power strip, Wi-Fi or MQTT.',
+     menu:'Menu',device:'Power strip',wifi:'Wi-Fi setup',mqtt:'HA · MQTT',firmware:'Firmware',logs:'Logs',currentVersion:'Current version',
+diff --git a/source/standalone/ui/index.html b/source/standalone/ui/index.html
+index 6aa77fc..3477d94 100644
+--- a/source/standalone/ui/index.html
++++ b/source/standalone/ui/index.html
+@@ -77,7 +77,7 @@
+       <label><input id="protect-power-enabled" type="checkbox" checked><span data-i18n="protectPower">고전력 차단 · 전체 전력</span></label>
+       <div class="sensor protection-slider"><input id="protect-power" type="range" min="100" max="3000" step="1" value="3000"><b id="protect-power-value">3000 W</b></div>
+       <div class="row"><button id="protection-apply" class="primary" data-i18n="applyProtection" disabled>적용</button></div><div id="protection-save-status" class="status" role="status"></div>
+-    </form><div id="protection-state" class="status" role="status"></div><p class="muted" data-i18n="protectionNote">자동 재켜기·잠금은 없습니다. 센서 읽기 실패는 오류만 표시합니다. 하드웨어 안전 보호 장치를 대체하지 않습니다.</p></div>
++    </form><div id="protection-state" class="status" role="status"></div></div>
+   </section>
+   <section id="scheduler" role="tabpanel" aria-labelledby="tab-scheduler">
+     <div class="panel"><h2 data-i18n="scheduler">스케줄러</h2><form id="schedule-form"><div id="schedule-editor"></div><div id="schedule-status" class="status" role="status"></div></form></div>
+diff --git a/source/standalone/ui/ota-live.js b/source/standalone/ui/ota-live.js
+index 0dc52c4..f3db74f 100644
+--- a/source/standalone/ui/ota-live.js
++++ b/source/standalone/ui/ota-live.js
+@@ -16,7 +16,7 @@ const words={ko:['전원을 끄지 마세요. 지원: 독립 FWR, 순정 1.0.66,
+   try{
+    const response=await fetch('/api/firmware/status',{cache:'no-store',credentials:'omit',signal:controller.signal});
+    if(!response.ok)throw Error('Reconnect');const status=await response.json();
+-   if(/^[0-9a-f]{16}$/.test(status.build_id||'')&&currentBuild&&status.build_id!==currentBuild){
++   if(/^[0-9a-z][0-9a-z._-]{3,31}$/.test(status.build_id||'')&&currentBuild&&status.build_id!==currentBuild){
+     location.hash='#firmware';location.reload();return;
+    }
+   }catch(_){}finally{clearTimeout(timeout);}
+@@ -53,8 +53,8 @@ const words={ko:['전원을 끄지 마세요. 지원: 독립 FWR, 순정 1.0.66,
+   try{
+   const response=await fetch('/api/firmware/status',{cache:'no-store',credentials:'omit',signal:controller.signal});
+   if(!response.ok)throw Error('Status');const status=await response.json();
+-  if(typeof status.ota_ready!=='boolean'||!/^[0-9a-f]{16}$/.test(status.build_id||''))throw Error('Status');
+-  ready=status.ota_ready===true;const build=/^[0-9a-f]{16}$/.test(status.build_id||'')?status.build_id:null;
++  if(typeof status.ota_ready!=='boolean'||!/^[0-9a-z][0-9a-z._-]{3,31}$/.test(status.build_id||''))throw Error('Status');
++  ready=status.ota_ready===true;const build=/^[0-9a-z][0-9a-z._-]{3,31}$/.test(status.build_id||'')?status.build_id:null;
+   currentBuild=build;if(el('current-build-id'))el('current-build-id').textContent=build||'—';
+   let expected;try{expected=localStorage.getItem(pendingKey);}catch(_){}
+   if(expected&&build){detail=(document.documentElement.lang==='en'?'Build verification: ':'빌드 확인: ')+(expected===build?'OK · ':'NOT MATCHED · ')+build;if(expected===build)remember(null);}

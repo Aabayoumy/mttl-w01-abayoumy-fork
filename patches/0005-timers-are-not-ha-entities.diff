@@ -1,0 +1,371 @@
+diff --git a/source/standalone/firmware/device_app.c b/source/standalone/firmware/device_app.c
+index c702f07..20ee816 100644
+--- a/source/standalone/firmware/device_app.c
++++ b/source/standalone/firmware/device_app.c
+@@ -27,32 +27,15 @@ void mttl_device_button(mttl_device_app *d,unsigned button,int down,uint32_t now
+     int event;if(button>4)return;if(!button){event=mttl_button_edge(&d->main_button,down!=0,now);if(event==2)d->provision_requested=1;else if(event==1&&d->control.known_mask==15)mttl_device_command(d,MTTL_ALL,d->control.on_mask!=15);}
+     else{unsigned ch=button-1;event=mttl_button_edge(&d->channel_button[ch],down!=0,now);if(event&&(d->control.known_mask&(1u<<ch)))mttl_device_command(d,(uint8_t)ch,!(d->control.on_mask&(1u<<ch)));}
+ }
+-int mttl_device_publish_remaining(mttl_device_app *d,const char *id,uint32_t now){
+- char base[96],topic[128],payload[16];unsigned ch,bit,active;uint32_t remaining;
+- if(d->mqtt.tx_size||d->mqtt.rediscover||!mttl_ha_base(&d->settings,id,base,sizeof(base)))return 0;
+- for(ch=0;ch<4;ch++){
+-  bit=1u<<ch;remaining=mttl_timer_remaining(&d->timers,ch,now);active=remaining!=0;
+-  if(!(d->timers.running&bit))remaining=(uint32_t)d->settings.timer_minutes[ch]*60u;
+-  if((d->mqtt_remaining_known&bit)&&active==((d->mqtt_remaining_running&bit)!=0)&&
+-     ((!active&&d->mqtt_remaining_minutes[ch]==d->settings.timer_minutes[ch]&&d->mqtt_remaining_deadline[ch]==remaining)||(active&&d->mqtt_remaining_deadline[ch]==d->timers.deadline[ch]&&(uint32_t)(now-d->mqtt_remaining_at[ch])<5000u)))continue;
+-  snprintf(topic,sizeof(topic),"%s/timer_remaining%u",base,ch+1);snprintf(payload,sizeof(payload),"%lu",(unsigned long)remaining);
+-  /* Retain configured seconds while idle, countdown while running.
+-   * Shared availability covers disconnects; unchanged idle values stay silent. */
+-  if(!mttl_mqtt_engine_publish(&d->mqtt,topic,(const uint8_t *)payload,strlen(payload),1,now))return 0;
+-  d->mqtt_remaining_known|=bit;d->mqtt_remaining_running=(d->mqtt_remaining_running&~bit)|(active?bit:0);
+-  d->mqtt_remaining_deadline[ch]=active?d->timers.deadline[ch]:remaining;d->mqtt_remaining_at[ch]=now;d->mqtt_remaining_minutes[ch]=d->settings.timer_minutes[ch];return 1;
+- }
+- return 0;
+-}
+ void mttl_device_tick(mttl_device_app *d,const char *id,int network,uint32_t now,const mttl_mqtt_io *io){
+     mttl_output output={&d->hardware,mttl_hardware_begin,mttl_hardware_end};
+     if(!d->relay_request&&d->hardware.verified&&d->hardware.write)mttl_control_tick(&d->control,&output,now);
+     mttl_ntp_link(&d->ntp,network,now);
+     if(io){mttl_mqtt_io bound=*io;bound.command=mttl_device_command;bound.timer_command=mttl_device_timer_command;bound.command_context=d;mttl_mqtt_engine_step(&d->mqtt,&d->settings,id,network,d->revision,now,&bound);}
+-    if(d->mqtt.session.state!=MTTL_MQ_ONLINE||d->mqtt.rediscover){d->mqtt_known=d->mqtt_all=d->mqtt_was_online=d->mqtt_timer_known=d->mqtt_remaining_known=0;d->mqtt_sensor_known=0;d->mqtt_trip_mask=0xff;}
++    if(d->mqtt.session.state!=MTTL_MQ_ONLINE||d->mqtt.rediscover){d->mqtt_known=d->mqtt_all=d->mqtt_was_online=d->mqtt_timer_known=0;d->mqtt_sensor_known=0;d->mqtt_trip_mask=0xff;}
+     else{unsigned dirty=(d->control.known_mask&~d->mqtt_known)|((d->control.on_mask^d->mqtt_on)&d->control.known_mask);
+       if(dirty||!d->mqtt_all){publish_sample(d,id,now);d->publish_at=now;}
+-      else if(!mttl_device_publish_remaining(d,id,now)&&(uint32_t)(now-d->publish_at)>=MTTL_HA_SENSOR_CHECK_MS){publish_sample(d,id,now);d->publish_at=now;}}
++      else if((uint32_t)(now-d->publish_at)>=MTTL_HA_SENSOR_CHECK_MS){publish_sample(d,id,now);d->publish_at=now;}}
+ }
+ static void publish_sample(mttl_device_app *d,const char *id,uint32_t now){
+     static const char *keys[]={"power","meter","voltage","current"};
+@@ -78,10 +61,7 @@ static void publish_sample(mttl_device_app *d,const char *id,uint32_t now){
+             if(mttl_mqtt_engine_publish(&d->mqtt,topic,(const uint8_t *)payload,strlen(payload),1,now)){d->mqtt_trip_mask=(uint8_t)live;d->mqtt_trip_reason=d->protection.reason;}
+             return;
+         }
+-        for(ch=0;ch<4;ch++)if(!(d->mqtt_timer_known&(1u<<ch))||d->mqtt_timer_minutes[ch]!=d->settings.timer_minutes[ch]){
+-        snprintf(topic,sizeof(topic),"%s/timer%u",base,ch+1);snprintf(payload,sizeof(payload),"%u",d->settings.timer_minutes[ch]);
+-        if(mttl_mqtt_engine_publish(&d->mqtt,topic,(const uint8_t *)payload,strlen(payload),1,now)){d->mqtt_timer_known|=1u<<ch;d->mqtt_timer_minutes[ch]=d->settings.timer_minutes[ch];}return;
+-    }}
++    }
+     if(index>=5)d->publish_index=(uint8_t)(index+1<MTTL_HA_SAMPLE_ENTITIES?index+1:5);
+     if(index<5){if(!index){if(d->control.known_mask!=15)return;strcpy(key,"all");strcpy(payload,d->control.on_mask==15?"ON":"OFF");}
+         else{ch=index-1;if(!(d->control.known_mask&(1u<<ch)))return;snprintf(key,sizeof(key),"sw%u",index);strcpy(payload,(d->control.on_mask&(1u<<ch))?"ON":"OFF");}}
+diff --git a/source/standalone/firmware/device_app.h b/source/standalone/firmware/device_app.h
+index f08f359..8f5bb1a 100644
+--- a/source/standalone/firmware/device_app.h
++++ b/source/standalone/firmware/device_app.h
+@@ -18,15 +18,14 @@ typedef struct {
+     mttl_protection_state protection;
+     mttl_timer_state timers;
+     int (*timer_request)(uint8_t,uint16_t);
+-    uint16_t mqtt_timer_minutes[4];
++    /* Timer values are device local: no timer entity and no timer state topic is
++     * published to Home Assistant any more. This flag only records that a timer
++     * acknowledgement was already sent for that channel. */
+     uint8_t mqtt_timer_known;
+-    uint32_t mqtt_remaining_at[4],mqtt_remaining_deadline[4];
+-    uint8_t mqtt_remaining_known,mqtt_remaining_running;
+     /* Raw integers map exactly to fixed MQTT decimal precision (no rounding).
+      * Only accepted packets update these volatile, CPU-only caches. */
+     int32_t mqtt_sensor_value[MTTL_HA_SENSOR_COUNT];
+     uint32_t mqtt_sensor_at[MTTL_HA_SENSOR_COUNT],mqtt_sensor_known;
+-    uint16_t mqtt_remaining_minutes[4]; /* Idle duration publication cache. */
+ } mttl_device_app;
+ /* Queued state is not yet transmitted. Keep the socket owner ahead of
+  * slow meter/NOR work until channel and aggregate confirmations drain. */
+@@ -43,9 +42,6 @@ int mttl_device_configure(mttl_device_app *,const uint8_t *,size_t,const mttl_se
+ int mttl_device_timer_command(void *,uint8_t,uint16_t);
+ int mttl_device_command(void *,uint8_t,uint8_t);
+ void mttl_device_button(mttl_device_app *,unsigned button,int down,uint32_t now);
+-/* One current remaining-time packet per call: running every 5 seconds, idle only on
+- * transitions/session synchronization. Retry busy queues without catching up. */
+-int mttl_device_publish_remaining(mttl_device_app *,const char *,uint32_t);
+ void mttl_device_tick(mttl_device_app *,const char *id,int network,uint32_t now,const mttl_mqtt_io *);
+ /* JSON projection includes no password. Raw sample contract:
+  * power mW, meter Wh, current mA, temperature/voltage tenths. */
+diff --git a/source/standalone/firmware/ha_discovery.c b/source/standalone/firmware/ha_discovery.c
+index 78137a5..6658807 100644
+--- a/source/standalone/firmware/ha_discovery.c
++++ b/source/standalone/firmware/ha_discovery.c
+@@ -10,7 +10,7 @@ size_t mttl_ha_discovery(const mttl_settings *s,const char *id,unsigned index,ch
+     static const char *channel_labels[]={"Power","Meter","Current","Temperature"};
+     static const char *classes[]={"power","energy","voltage","current","temperature"};
+     static const char *units[]={"W","kWh","V","A","°C"};
+-    char base[96],key[24],name[132],device[132],extra[220],display[80];const char *component=index<5?"switch":(index<25||index>=29)?"sensor":"number";const char *short_id;int n,channel=-1;unsigned kind=0;
++    char base[96],key[24],name[132],device[132],extra[220],display[80];const char *component=index<5?"switch":"sensor";const char *short_id;int n,channel=-1;unsigned kind=0;
+     if(!topic||!json||index>=MTTL_HA_ENTITIES||!mttl_ha_base(s,id,base,sizeof(base)))return 0;
+     if(index==MTTL_HA_TRIP_INDEX){
+         /* Trip visibility for the outlets a protection cut switched off. The
+@@ -20,14 +20,6 @@ size_t mttl_ha_discovery(const mttl_settings *s,const char *id,unsigned index,ch
+          * driven, no expiry - it describes the live cut, not a sample. */
+         strcpy(key,"protection");if(!quote("Protection",name,sizeof(name)))return 0;
+         n=snprintf(extra,sizeof(extra),"\"ent_cat\":\"diagnostic\",\"json_attr_t\":\"~/protection\",\"val_tpl\":\"{{ value_json.mask }}\",");
+-    }else if(index>=29){
+-        channel=(int)index-29;snprintf(key,sizeof(key),"timer_remaining%u",(unsigned)channel+1);
+-        snprintf(display,sizeof(display),"%s Timer Remaining",s->channel[channel]);if(!quote(display,name,sizeof(name)))return 0;
+-        n=snprintf(extra,sizeof(extra),"\"dev_cla\":\"duration\",\"unit_of_meas\":\"s\",\"suggested_display_precision\":0,");
+-    }else if(index>=25){
+-        channel=(int)index-25;snprintf(key,sizeof(key),"timer%u",(unsigned)channel+1);
+-        snprintf(display,sizeof(display),"%s Auto OFF Timer",s->channel[channel]);if(!quote(display,name,sizeof(name)))return 0;
+-        n=snprintf(extra,sizeof(extra),"\"cmd_t\":\"~/%s/set\",\"min\":0,\"max\":1440,\"step\":1,\"mode\":\"box\",\"unit_of_meas\":\"min\",\"optimistic\":false,\"retain\":false,\"ent_cat\":\"config\",",key);
+     }else if(index<5){
+         if(!index){strcpy(key,"all");if(!quote("SW All",name,sizeof(name)))return 0;}
+         else{channel=(int)index-1;snprintf(key,sizeof(key),"sw%u",index);if(!quote(s->channel[channel],name,sizeof(name)))return 0;}
+diff --git a/source/standalone/firmware/ha_discovery.h b/source/standalone/firmware/ha_discovery.h
+index 5d93013..fadfdaa 100644
+--- a/source/standalone/firmware/ha_discovery.h
++++ b/source/standalone/firmware/ha_discovery.h
+@@ -6,10 +6,14 @@
+ #define MTTL_HA_SENSOR_CHECK_MS 500u
+ #define MTTL_HA_SENSOR_HEARTBEAT_MS 300000u
+ #define MTTL_HA_SENSOR_EXPIRE_SECONDS 600u
+-#define MTTL_HA_ENTITIES 34
+-/* Protection trip sensor. Appended last so every existing entity index keeps its
+- * meaning (HA discovery is write-once per index). */
+-#define MTTL_HA_TRIP_INDEX 33
++/* Entities 0..24 are the sampled set: switches (0..4) and sensors (5..24).
++ * The HA timer entities that used to occupy 25..32 are gone: the auto-off
++ * timers stay a device local feature (web UI, buttons, MQTT timer set topic)
++ * but are not announced to Home Assistant. */
++#define MTTL_HA_ENTITIES 26
++/* Protection trip sensor. Last index, so every sampled index keeps its meaning
++ * (HA discovery is write-once per index). */
++#define MTTL_HA_TRIP_INDEX 25
+ /* Full lowercase hexadecimal MAC identity, separate namespace from backend.
+  * Bounded JSON output, no credentials. 0 means invalid/capacity failure. */
+ size_t mttl_ha_discovery(const mttl_settings *,const char *id,unsigned index,char *topic,size_t topic_cap,char *json,size_t json_cap);
+diff --git a/source/standalone/firmware/integration_mock.c b/source/standalone/firmware/integration_mock.c
+index ca024e7..ed8a1d9 100644
+--- a/source/standalone/firmware/integration_mock.c
++++ b/source/standalone/firmware/integration_mock.c
+@@ -7,7 +7,7 @@
+ #include "ota_stage.h"
+ #include <string.h>
+ #include <stdio.h>
+-char mttl_test_ha_json[33][768],mttl_test_ha_topics[33][128];
++char mttl_test_ha_json[MTTL_HA_ENTITIES][768],mttl_test_ha_topics[MTTL_HA_ENTITIES][128];
+ char mttl_test_device_json[2048],mttl_test_config_json[2048];
+ extern unsigned mttl_test_count,mttl_test_failed,mttl_failed_ids[64];
+ static void check(int p){++mttl_test_count;if(!p&&mttl_test_failed<64)mttl_failed_ids[mttl_test_failed++]=mttl_test_count;}
+@@ -46,7 +46,7 @@ static mttl_sample *sensor_value(unsigned index){
+ }
+ static void sensor_prepare(void){
+  mttl_device_init(&app,1700000000);app.mqtt.session.state=MTTL_MQ_ONLINE;app.mqtt.phase=9;
+- app.mqtt_known=app.control.known_mask=15;app.mqtt_all=1;app.mqtt_timer_known=app.mqtt_remaining_known=15;
++ app.mqtt_known=app.control.known_mask=15;app.mqtt_all=1;app.mqtt_timer_known=15;
+ }
+ static int sensor_probe(unsigned index,int32_t raw,int valid,uint32_t now,uint32_t age){
+  mttl_sample_update(sensor_value(index),raw,valid,now-age);app.publish_index=(uint8_t)index;app.publish_at=now-500;
+@@ -92,7 +92,7 @@ static void sensor_policy_test(void){
+  check(!sensor_probe(5,42,1,first+299999,0));check(sensor_probe(5,42,1,first+300000,0));sensor_packet("power","0.042");
+  /* HA birth and offline clear known values, so fresh unchanged data resyncs. */
+  app.mqtt.rediscover=1;mttl_device_tick(&app,"aabbccddeeff",1,first+300100,0);check(!app.mqtt_sensor_known);
+- app.mqtt.rediscover=0;app.mqtt_known=app.control.known_mask=15;app.mqtt_all=1;app.mqtt_timer_known=app.mqtt_remaining_known=15;
++ app.mqtt.rediscover=0;app.mqtt_known=app.control.known_mask=15;app.mqtt_all=1;app.mqtt_timer_known=15;
+  check(sensor_probe(5,42,1,first+300200,0));sensor_packet("power","0.042");
+  app.mqtt.session.state=MTTL_MQ_OFF;mttl_device_tick(&app,"aabbccddeeff",0,first+300300,0);check(!app.mqtt_sensor_known);
+  /* The 500ms guard checks no sensor between its normal slots. */
+@@ -101,88 +101,6 @@ static void sensor_policy_test(void){
+  mttl_device_tick(&app,"aabbccddeeff",1,1500,0);sensor_packet("power","0.001");check(app.publish_index==6);
+ 
+ }
+-static void remaining_check(unsigned channel,uint32_t value){
+- mttl_publish p;char topic[96],payload[16];
+- snprintf(topic,sizeof(topic),"mttl/standalone/aabbccddeeff/timer_remaining%u",channel+1);
+- snprintf(payload,sizeof(payload),"%lu",(unsigned long)value);
+- check(mttl_parse_publish(app.mqtt.tx,app.mqtt.tx_size,&p));
+- check(p.retained&&p.topic_size==strlen(topic)&&!memcmp(p.topic,topic,p.topic_size));
+- check(p.payload_size==strlen(payload)&&!memcmp(p.payload,payload,p.payload_size));
+- app.mqtt.tx_size=app.mqtt.tx_sent=0;
+-}
+-static void remaining_cadence_test(void){
+- unsigned k,ch,counts[4]={0},sensors=0;uint32_t now,last[4]={0};uint16_t minutes[4]={90,90,90,90};mttl_publish p;
+- mttl_device_init(&app,1700000000);app.mqtt.session.state=MTTL_MQ_ONLINE;app.mqtt.phase=9;
+- app.mqtt_known=app.mqtt_on=app.control.known_mask=app.control.on_mask=15;
+- app.mqtt_all=app.mqtt_was_online=1;app.mqtt_timer_known=15;app.mqtt_remaining_known=15;
+- for(k=0;k<20;k++)mttl_sample_update(((mttl_sample *)&app.samples)+k,1000,1,1000);
+- mttl_timer_tick(&app.timers,minutes,15,15,1000);
+- /* A due countdown must never precede a completed switch confirmation. */
+- app.control.on_mask=14;mttl_device_tick(&app,"aabbccddeeff",1,1000,0);
+- check(mttl_parse_publish(app.mqtt.tx,app.mqtt.tx_size,&p));check(p.topic_size>=4&&!memcmp(p.topic+p.topic_size-4,"/sw1",4));
+- app.mqtt.tx_size=app.mqtt.tx_sent=0;app.control.on_mask=app.mqtt_on=15;
+- for(now=1010;now<11010;now+=10){
+-  mttl_device_tick(&app,"aabbccddeeff",1,now,0);
+-  if(!app.mqtt.tx_size)continue;
+-  check(mttl_parse_publish(app.mqtt.tx,app.mqtt.tx_size,&p));
+-  if(p.topic_size>=17&&!memcmp(p.topic+p.topic_size-17,"/timer_remaining",16)){
+-   ch=p.topic[p.topic_size-1]-'1';check(ch<4);
+-   if(ch<4){if(counts[ch])check(now-last[ch]>=5000);last[ch]=now;++counts[ch];check(p.retained);}
+-  }else{++sensors;check(!p.retained);}
+-  app.mqtt.tx_size=app.mqtt.tx_sent=0;
+- }
+- for(ch=0;ch<4;ch++)check(counts[ch]==2);
+- check(sensors>=18&&sensors<=20); /* Sensor check rotation is ~2/sec; unchanged values are silent. */
+-}
+-static void remaining_test(void){
+- unsigned ch,k;uint16_t minutes[4]={90,90,90,90};uint32_t at;
+- mttl_device_init(&app,1700000000);app.mqtt.session.state=MTTL_MQ_ONLINE;app.mqtt.phase=9;
+- app.mqtt.session.desired=1;app.mqtt_known=app.control.known_mask=15;app.mqtt_all=1;app.mqtt_timer_known=15;app.publish_index=13;
+- /* Initial idle zero once/channel, then silence even if a duration is configured. */
+- for(ch=0;ch<4;ch++){check(mttl_device_publish_remaining(&app,"aabbccddeeff",100));remaining_check(ch,0);}
+- for(k=1;k<10;k++)check(!mttl_device_publish_remaining(&app,"aabbccddeeff",100+k*1000));
+- app.settings.timer_minutes[0]=90;check(mttl_device_publish_remaining(&app,"aabbccddeeff",10000));remaining_check(0,5400);
+- check(!mttl_device_publish_remaining(&app,"aabbccddeeff",10001));
+- for(ch=0;ch<4;ch++)app.settings.timer_minutes[ch]=90;
+- /* Four simultaneous timers use independent 5-second clocks. No sensor cursor use. */
+- mttl_timer_tick(&app.timers,minutes,15,15,11000);
+- for(ch=0;ch<4;ch++){check(mttl_device_publish_remaining(&app,"aabbccddeeff",11000));remaining_check(ch,5400);}
+- check(app.publish_index==13);check(!mttl_device_publish_remaining(&app,"aabbccddeeff",15999));
+- for(ch=0;ch<4;ch++){check(mttl_device_publish_remaining(&app,"aabbccddeeff",16000));remaining_check(ch,5395);}
+- /* A full output queue or rediscovery cannot acknowledge a sample prematurely. */
+- app.mqtt.tx_size=1;check(!mttl_device_publish_remaining(&app,"aabbccddeeff",21000));check(app.mqtt_remaining_at[0]==16000);
+- app.mqtt.tx_size=0;app.mqtt.rediscover=1;check(!mttl_device_publish_remaining(&app,"aabbccddeeff",21000));app.mqtt.rediscover=0;
+- for(ch=0;ch<4;ch++){check(mttl_device_publish_remaining(&app,"aabbccddeeff",26000));remaining_check(ch,5385);}
+- check(!mttl_device_publish_remaining(&app,"aabbccddeeff",26000)); /* no delayed backlog */
+- /* OFF restores configured duration once, without periodic idle traffic. */
+- mttl_timer_tick(&app.timers,minutes,15,0,26100);
+- for(ch=0;ch<4;ch++){check(mttl_device_publish_remaining(&app,"aabbccddeeff",26100));remaining_check(ch,5400);}
+- check(!mttl_device_publish_remaining(&app,"aabbccddeeff",99999));
+- minutes[0]=1;minutes[1]=minutes[2]=minutes[3]=0;for(ch=0;ch<4;ch++)app.settings.timer_minutes[ch]=minutes[ch];
+- for(ch=0;ch<4;ch++){check(mttl_device_publish_remaining(&app,"aabbccddeeff",99999));remaining_check(ch,ch?0:60);}
+- mttl_timer_tick(&app.timers,minutes,15,1,100000);
+- check(mttl_device_publish_remaining(&app,"aabbccddeeff",100000));remaining_check(0,60);
+- check(mttl_device_publish_remaining(&app,"aabbccddeeff",159000));remaining_check(0,1);
+- check(mttl_device_publish_remaining(&app,"aabbccddeeff",160000));remaining_check(0,0);
+- check(!mttl_device_publish_remaining(&app,"aabbccddeeff",161000)); /* OFF queue still pending */
+- /* Wrap-safe 5s cadence and immediate timer restart/duration change. */
+- mttl_timer_tick(&app.timers,minutes,15,0,161000);at=0xfffffff0u;mttl_timer_tick(&app.timers,minutes,15,1,at);
+- check(mttl_device_publish_remaining(&app,"aabbccddeeff",at));remaining_check(0,60);
+- check(!mttl_device_publish_remaining(&app,"aabbccddeeff",at+4999));
+- check(mttl_device_publish_remaining(&app,"aabbccddeeff",at+5000));remaining_check(0,55);
+- minutes[0]=1440;mttl_timer_tick(&app.timers,minutes,15,1,at+5100);
+- check(mttl_device_publish_remaining(&app,"aabbccddeeff",at+5100));remaining_check(0,86400);
+- /* Removal stops publication even while the switch remains ON. */
+- minutes[0]=0;app.settings.timer_minutes[0]=0;mttl_timer_tick(&app.timers,minutes,15,1,at+5200);
+- check(mttl_device_publish_remaining(&app,"aabbccddeeff",at+5200));remaining_check(0,0);
+- check(!mttl_device_publish_remaining(&app,"aabbccddeeff",at+6200));
+- /* HA birth/offline invalidate once-only state; reconnect reseeds idle zeros. */
+- app.mqtt.rediscover=1;mttl_device_tick(&app,"aabbccddeeff",1,at+6300,0);check(!app.mqtt_remaining_known);
+- app.mqtt.rediscover=0;
+- for(ch=0;ch<4;ch++){check(mttl_device_publish_remaining(&app,"aabbccddeeff",at+6400));remaining_check(ch,0);}
+- app.mqtt.session.state=MTTL_MQ_OFF;mttl_device_tick(&app,"aabbccddeeff",0,at+6500,0);check(!app.mqtt_remaining_known);
+- check(!mttl_device_publish_remaining(&app,"aabbccddeeff",at+6500));check(!app.mqtt_remaining_known);
+-}
+ void mttl_integration_test(void){mttl_settings s;mttl_mqtt_engine e;mttl_mqtt_io io;unsigned i;uint32_t now=0;char tiny[2];
+  {
+   static const char *values[]={"0","1","30","1440","1441","-1","1.5","","99999","ON"};
+@@ -210,23 +128,23 @@ void mttl_integration_test(void){mttl_settings s;mttl_mqtt_engine e;mttl_mqtt_io
+   check(mttl_device_timer_command(&app,0,0));check(mttl_device_timer_command(&app,1,30));
+   app.settings.schedule.rules[0].channel=4;app.settings.timer_minutes[1]=0;
+   for(k=0;k<4;k++)check(!mttl_device_timer_command(&app,k,10));
+-  app.control.known_mask=15;app.mqtt_known=15;app.mqtt_all=1;app.mqtt_timer_known=0;app.mqtt_remaining_known=15;
++  app.control.known_mask=15;app.mqtt_known=15;app.mqtt_all=1;app.mqtt_timer_known=0;
+   for(k=0;k<4;k++){
+    app.mqtt.tx_size=app.mqtt.tx_sent=0;mttl_device_tick(&app,"aabbccddeeff",1,1000+k*500,0);
+    check(mttl_parse_publish(app.mqtt.tx,app.mqtt.tx_size,&pub));check(pub.retained&&pub.payload_size==1&&pub.payload[0]=='0');
+   }
+   check(app.mqtt_timer_known==15);
+  }
+- sensor_policy_test();remaining_test();remaining_cadence_test();
++ sensor_policy_test();
+  memset(&b,0,sizeof(b));mttl_settings_default(&s);strcpy(s.broker,"192.168.0.4");s.mqtt_enabled=1;
+- for(i=0;i<33;i++)check(mttl_ha_discovery(&s,"aabbccddeeff",i,mttl_test_ha_topics[i],128,mttl_test_ha_json[i],768)>0);
+- for(i=0;i<33;i++)check((i<5||i>=25)?!strstr(mttl_test_ha_json[i],"\"exp_aft\""):strstr(mttl_test_ha_json[i],"\"exp_aft\":600,")!=0);
+- check(!mttl_ha_discovery(&s,"bad",0,tiny,2,tiny,2));check(!mttl_ha_discovery(&s,"aabbccddeeff",33,tiny,2,tiny,2));
++ for(i=0;i<MTTL_HA_ENTITIES;i++)check(mttl_ha_discovery(&s,"aabbccddeeff",i,mttl_test_ha_topics[i],128,mttl_test_ha_json[i],768)>0);
++ for(i=0;i<MTTL_HA_ENTITIES;i++)check((i<5||i==MTTL_HA_TRIP_INDEX)?!strstr(mttl_test_ha_json[i],"\"exp_aft\""):strstr(mttl_test_ha_json[i],"\"exp_aft\":600,")!=0);
++ check(!mttl_ha_discovery(&s,"bad",0,tiny,2,tiny,2));check(!mttl_ha_discovery(&s,"aabbccddeeff",MTTL_HA_ENTITIES,tiny,2,tiny,2));
+  {char json[768],topic[128];uint8_t packet[1024];size_t n;memset(s.device,'"',64);s.device[64]=0;memset(s.topic,'x',64);s.topic[64]=0;
+  n=mttl_ha_discovery(&s,"aabbccddeeff",0,topic,sizeof(topic),json,sizeof(json));check(n>0);check(mttl_mq_publish_packet(packet,sizeof(packet),topic,(const uint8_t *)json,n,1)>0);mttl_settings_default(&s);strcpy(s.broker,"192.168.0.4");s.mqtt_enabled=1;}
+  memset(&io,0,sizeof(io));io.context=&b;io.command_context=&b;io.timer_command=0;io.open=open_mock;io.close=close_mock;io.send=send_mock;io.receive=recv_mock;io.command=command_mock;mttl_mqtt_engine_init(&e);
+  for(i=0;i<4000&&e.session.state!=MTTL_MQ_ONLINE;i++,now++)mttl_mqtt_engine_step(&e,&s,"aabbccddeeff",1,1,now,&io);
+- check(e.session.state==MTTL_MQ_ONLINE);check(b.discovery==33&&b.online==1);
++ check(e.session.state==MTTL_MQ_ONLINE);check(b.discovery==MTTL_HA_ENTITIES&&b.online==1);
+  b.rx_n=mttl_mq_publish_packet(b.rx,512,"mttl/standalone/aabbccddeeff/4/set",(const uint8_t *)"ON",2,0);
+  mttl_mqtt_engine_step(&e,&s,"aabbccddeeff",1,1,++now,&io);check(b.commands==1);
+  io.timer_command=timer_mock;timer_calls=0;
+@@ -235,7 +153,7 @@ void mttl_integration_test(void){mttl_settings s;mttl_mqtt_engine e;mttl_mqtt_io
+  b.rx_n=mttl_mq_publish_packet(b.rx,512,"mttl/standalone/aabbccddeeff/timer3/set",(const uint8_t *)"30",2,1);
+  mttl_mqtt_engine_step(&e,&s,"aabbccddeeff",1,1,++now,&io);check(timer_calls==1);
+  b.rx_n=mttl_mq_publish_packet(b.rx,512,"homeassistant/status",(const uint8_t *)"online",6,1);
+- for(i=0;i<4000&&b.online<2;i++,now++)mttl_mqtt_engine_step(&e,&s,"aabbccddeeff",1,1,now,&io);check(b.discovery==66&&b.online==2);
++ for(i=0;i<4000&&b.online<2;i++,now++)mttl_mqtt_engine_step(&e,&s,"aabbccddeeff",1,1,now,&io);check(b.discovery==2*MTTL_HA_ENTITIES&&b.online==2);
+  b.rx_n=mttl_mq_publish_packet(b.rx,512,"mttl/standalone/aabbccddeeff/4/set",(const uint8_t *)"ON",2,1);
+  mttl_mqtt_engine_step(&e,&s,"aabbccddeeff",1,1,++now,&io);check(b.commands==1);
+  now+=21000;for(i=0;i<5;i++)mttl_mqtt_engine_step(&e,&s,"aabbccddeeff",1,1,now+i,&io);check(b.pings==1&&!e.ping_wait);
+@@ -243,12 +161,12 @@ void mttl_integration_test(void){mttl_settings s;mttl_mqtt_engine e;mttl_mqtt_io
+  /* Full connect/delete/fence/disconnect with seven-byte partial sends. */
+  memset(&b,0,sizeof(b));mttl_mqtt_engine_init(&e);s.mqtt_enabled=0;
+  for(i=0;i<4000&&!e.cleanup_done;i++)mttl_mqtt_engine_step(&e,&s,"aabbccddeeff",1,2,i,&io);
+- check(e.cleanup_done&&b.deletions==34&&!b.discovery&&!b.online&&b.pings==1);
++ check(e.cleanup_done&&b.deletions==MTTL_HA_ENTITIES+1&&!b.discovery&&!b.online&&b.pings==1);
+  mttl_mqtt_engine_step(&e,&s,"aabbccddeeff",1,2,i+1,&io);
+  check(b.closed==1&&e.session.state==MTTL_MQ_OFF);
+  s.mqtt_enabled=1;
+  for(now=i+2;now<i+4000&&e.session.state!=MTTL_MQ_ONLINE;now++)mttl_mqtt_engine_step(&e,&s,"aabbccddeeff",1,3,now,&io);
+- check(e.session.state==MTTL_MQ_ONLINE&&b.discovery==33&&b.online==1);
++ check(e.session.state==MTTL_MQ_ONLINE&&b.discovery==MTTL_HA_ENTITIES&&b.online==1);
+  /* Missing fence response must retry, not mark cleanup complete. */
+  s.mqtt_enabled=0;b.drop_ping=1;
+  for(i=0;i<14000;i+=10)mttl_mqtt_engine_step(&e,&s,"aabbccddeeff",1,4,now+i,&io);
+@@ -350,7 +268,7 @@ void mttl_integration_test(void){mttl_settings s;mttl_mqtt_engine e;mttl_mqtt_io
+  mttl_device_init(&app,1700000000);strcpy(app.settings.wifi_password,"wifi-secret");strcpy(app.settings.mqtt_password,"mqtt-secret");
+  }
+  check(mttl_device_settings_json(&app,mttl_test_config_json,sizeof(mttl_test_config_json))>0);
+- {mttl_publish message;mttl_device_init(&app,1700000000);app.mqtt_timer_known=15;app.mqtt_remaining_known=15;app.mqtt.session.state=MTTL_MQ_ONLINE;
++ {mttl_publish message;mttl_device_init(&app,1700000000);app.mqtt_timer_known=15;app.mqtt.session.state=MTTL_MQ_ONLINE;
+   app.control.known_mask=app.mqtt_known=15;app.mqtt_all=1;
+   check(!mttl_device_mqtt_pending(&app));
+   app.control.on_mask=app.mqtt_on=15;check(mttl_device_mqtt_pending(&app));
+@@ -429,4 +347,3 @@ void mttl_integration_test(void){mttl_settings s;mttl_mqtt_engine e;mttl_mqtt_io
+  memset(&b,0,sizeof(b));mttl_mqtt_engine_init(&e);for(i=0;i<4000&&e.session.state!=MTTL_MQ_ONLINE;i++)mttl_mqtt_engine_step(&e,&s,"aabbccddeeff",1,1,i,&io);
+  b.drop_ping=1;for(now=i+21000;now<i+32000;now+=100)mttl_mqtt_engine_step(&e,&s,"aabbccddeeff",1,1,now,&io);check(b.pings==1&&b.closed>0);
+ }
+-
+diff --git a/source/standalone/host_test/protection_settings_test.c b/source/standalone/host_test/protection_settings_test.c
+index e320047..ad52a2f 100644
+--- a/source/standalone/host_test/protection_settings_test.c
++++ b/source/standalone/host_test/protection_settings_test.c
+@@ -360,15 +360,16 @@ static void test_protection_cut_policy(void){
+     CHECK(mttl_protection_round(&p,&c,6,0,1001,0,ci)&&p.cut_mask);
+ }
+ 
+-/* The HA entity contract. The trip sensor is appended, so every shipped index
+- * must keep its component, key and state topic. */
++/* The HA entity contract. The trip sensor is the last index and the timers are
++ * not exposed to HA at all, so every shipped index must keep its component, key
++ * and state topic, and no index may emit a `number` entity. */
+ static void test_ha_trip_discovery(void){
+     mttl_settings s;char topic[192],json[1024];size_t n;
+     mttl_settings_default(&s);
+     strcpy(s.device,"MTTL-Test");
+     strcpy(s.channel[0],"TV");strcpy(s.channel[1],"SBar");
+     strcpy(s.channel[2],"SW 3");strcpy(s.channel[3],"SW 4");
+-    CHECK(MTTL_HA_ENTITIES==34&&MTTL_HA_TRIP_INDEX==MTTL_HA_ENTITIES-1);
++    CHECK(MTTL_HA_ENTITIES==26&&MTTL_HA_TRIP_INDEX==MTTL_HA_ENTITIES-1);
+     n=mttl_ha_discovery(&s,"aabbccddeeff",MTTL_HA_TRIP_INDEX,topic,sizeof(topic),json,sizeof(json));
+     CHECK(n>0&&n<sizeof(json));
+     CHECK(!strcmp(topic,"homeassistant/sensor/mttl_cddeeff_protection/config"));
+@@ -387,11 +388,19 @@ static void test_ha_trip_discovery(void){
+           !strcmp(topic,"homeassistant/switch/mttl_cddeeff_all/config"));
+     CHECK(mttl_ha_discovery(&s,"aabbccddeeff",5,topic,sizeof(topic),json,sizeof(json))>0&&
+           !strcmp(topic,"homeassistant/sensor/mttl_cddeeff_powerall/config"));
+-    CHECK(mttl_ha_discovery(&s,"aabbccddeeff",25,topic,sizeof(topic),json,sizeof(json))>0&&
+-          !strcmp(topic,"homeassistant/number/mttl_cddeeff_timer1/config"));
+-    CHECK(mttl_ha_discovery(&s,"aabbccddeeff",32,topic,sizeof(topic),json,sizeof(json))>0&&
+-          !strcmp(topic,"homeassistant/sensor/mttl_cddeeff_timer_remaining4/config"));
++    CHECK(mttl_ha_discovery(&s,"aabbccddeeff",24,topic,sizeof(topic),json,sizeof(json))>0&&
++          !strcmp(topic,"homeassistant/sensor/mttl_cddeeff_temperature4/config"));
++    /* Timers are device local: no `number` component anywhere, no timer topic at
++     * the indices the old table used (25..32), and nothing at or past the count. */
++    {unsigned i,numbers=0;
++     for(i=0;i<MTTL_HA_ENTITIES;i++){
++         CHECK(mttl_ha_discovery(&s,"aabbccddeeff",i,topic,sizeof(topic),json,sizeof(json))>0);
++         if(!strncmp(topic,"homeassistant/number/",21))++numbers;
++         CHECK(strstr(topic,"timer")==0);
++     }
++     CHECK(numbers==0);}
+     CHECK(!mttl_ha_discovery(&s,"aabbccddeeff",MTTL_HA_ENTITIES,topic,sizeof(topic),json,sizeof(json)));
++    CHECK(!mttl_ha_discovery(&s,"aabbccddeeff",33,topic,sizeof(topic),json,sizeof(json)));
+ }
+ 
+ int main(void){

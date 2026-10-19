@@ -1,0 +1,166 @@
+diff --git a/source/standalone/firmware/device_app.c b/source/standalone/firmware/device_app.c
+index b2f3062..c702f07 100644
+--- a/source/standalone/firmware/device_app.c
++++ b/source/standalone/firmware/device_app.c
+@@ -49,7 +49,7 @@ void mttl_device_tick(mttl_device_app *d,const char *id,int network,uint32_t now
+     if(!d->relay_request&&d->hardware.verified&&d->hardware.write)mttl_control_tick(&d->control,&output,now);
+     mttl_ntp_link(&d->ntp,network,now);
+     if(io){mttl_mqtt_io bound=*io;bound.command=mttl_device_command;bound.timer_command=mttl_device_timer_command;bound.command_context=d;mttl_mqtt_engine_step(&d->mqtt,&d->settings,id,network,d->revision,now,&bound);}
+-    if(d->mqtt.session.state!=MTTL_MQ_ONLINE||d->mqtt.rediscover){d->mqtt_known=d->mqtt_all=d->mqtt_was_online=d->mqtt_timer_known=d->mqtt_remaining_known=0;d->mqtt_sensor_known=0;}
++    if(d->mqtt.session.state!=MTTL_MQ_ONLINE||d->mqtt.rediscover){d->mqtt_known=d->mqtt_all=d->mqtt_was_online=d->mqtt_timer_known=d->mqtt_remaining_known=0;d->mqtt_sensor_known=0;d->mqtt_trip_mask=0xff;}
+     else{unsigned dirty=(d->control.known_mask&~d->mqtt_known)|((d->control.on_mask^d->mqtt_on)&d->control.known_mask);
+       if(dirty||!d->mqtt_all){publish_sample(d,id,now);d->publish_at=now;}
+       else if(!mttl_device_publish_remaining(d,id,now)&&(uint32_t)(now-d->publish_at)>=MTTL_HA_SENSOR_CHECK_MS){publish_sample(d,id,now);d->publish_at=now;}}
+@@ -66,7 +66,19 @@ static void publish_sample(mttl_device_app *d,const char *id,uint32_t now){
+      else if(index<5)index=5;}
+     /* Switch confirmations are out-of-band: never rewind sensor rotation.
+      * Otherwise repeated sw1..sw4 changes starve late channel sensors. */
+-    if(index>=5){for(ch=0;ch<4;ch++)if(!(d->mqtt_timer_known&(1u<<ch))||d->mqtt_timer_minutes[ch]!=d->settings.timer_minutes[ch]){
++    if(index>=5){
++        /* Protection trip first: a cut must reach HA promptly. The mask counts
++         * only the outlets the last trip cut that are still off, so restoring
++         * power re-arms the entity for the next trip. Retained, and republished
++         * after every reconnect (mqtt_trip_mask==0xff). */
++        unsigned live=d->protection.cut_mask&(uint8_t)~d->control.on_mask;
++        if(live!=d->mqtt_trip_mask||d->protection.reason!=d->mqtt_trip_reason){
++            snprintf(payload,sizeof(payload),"{\"mask\":%u,\"reason\":%u}",(unsigned)live,(unsigned)d->protection.reason);
++            snprintf(topic,sizeof(topic),"%s/protection",base);
++            if(mttl_mqtt_engine_publish(&d->mqtt,topic,(const uint8_t *)payload,strlen(payload),1,now)){d->mqtt_trip_mask=(uint8_t)live;d->mqtt_trip_reason=d->protection.reason;}
++            return;
++        }
++        for(ch=0;ch<4;ch++)if(!(d->mqtt_timer_known&(1u<<ch))||d->mqtt_timer_minutes[ch]!=d->settings.timer_minutes[ch]){
+         snprintf(topic,sizeof(topic),"%s/timer%u",base,ch+1);snprintf(payload,sizeof(payload),"%u",d->settings.timer_minutes[ch]);
+         if(mttl_mqtt_engine_publish(&d->mqtt,topic,(const uint8_t *)payload,strlen(payload),1,now)){d->mqtt_timer_known|=1u<<ch;d->mqtt_timer_minutes[ch]=d->settings.timer_minutes[ch];}return;
+     }}
+diff --git a/source/standalone/firmware/device_app.h b/source/standalone/firmware/device_app.h
+index 9a7f46d..f08f359 100644
+--- a/source/standalone/firmware/device_app.h
++++ b/source/standalone/firmware/device_app.h
+@@ -12,6 +12,9 @@ typedef struct {
+     uint32_t publish_at;uint8_t publish_index;
+     int (*relay_request)(unsigned,unsigned); /* Optional external relay owner. */
+     uint8_t mqtt_known,mqtt_on,mqtt_all,mqtt_was_online;
++    /* Inputs of the last published protection trip payload; 0xff means "not
++     * published since (re)connect" (an impossible cut mask). */
++    uint8_t mqtt_trip_mask,mqtt_trip_reason;
+     mttl_protection_state protection;
+     mttl_timer_state timers;
+     int (*timer_request)(uint8_t,uint16_t);
+diff --git a/source/standalone/firmware/ha_discovery.c b/source/standalone/firmware/ha_discovery.c
+index 0027089..78137a5 100644
+--- a/source/standalone/firmware/ha_discovery.c
++++ b/source/standalone/firmware/ha_discovery.c
+@@ -12,7 +12,15 @@ size_t mttl_ha_discovery(const mttl_settings *s,const char *id,unsigned index,ch
+     static const char *units[]={"W","kWh","V","A","°C"};
+     char base[96],key[24],name[132],device[132],extra[220],display[80];const char *component=index<5?"switch":(index<25||index>=29)?"sensor":"number";const char *short_id;int n,channel=-1;unsigned kind=0;
+     if(!topic||!json||index>=MTTL_HA_ENTITIES||!mttl_ha_base(s,id,base,sizeof(base)))return 0;
+-    if(index>=29){
++    if(index==MTTL_HA_TRIP_INDEX){
++        /* Trip visibility for the outlets a protection cut switched off. The
++         * payload is a small JSON object so HA shows the cut mask as the state
++         * and the trip cause as an attribute; the outlet names stay device
++         * configuration and are resolved on the HA side. Retained, change
++         * driven, no expiry - it describes the live cut, not a sample. */
++        strcpy(key,"protection");if(!quote("Protection",name,sizeof(name)))return 0;
++        n=snprintf(extra,sizeof(extra),"\"ent_cat\":\"diagnostic\",\"json_attr_t\":\"~/protection\",\"val_tpl\":\"{{ value_json.mask }}\",");
++    }else if(index>=29){
+         channel=(int)index-29;snprintf(key,sizeof(key),"timer_remaining%u",(unsigned)channel+1);
+         snprintf(display,sizeof(display),"%s Timer Remaining",s->channel[channel]);if(!quote(display,name,sizeof(name)))return 0;
+         n=snprintf(extra,sizeof(extra),"\"dev_cla\":\"duration\",\"unit_of_meas\":\"s\",\"suggested_display_precision\":0,");
+diff --git a/source/standalone/firmware/ha_discovery.h b/source/standalone/firmware/ha_discovery.h
+index 9074ba2..5d93013 100644
+--- a/source/standalone/firmware/ha_discovery.h
++++ b/source/standalone/firmware/ha_discovery.h
+@@ -6,7 +6,10 @@
+ #define MTTL_HA_SENSOR_CHECK_MS 500u
+ #define MTTL_HA_SENSOR_HEARTBEAT_MS 300000u
+ #define MTTL_HA_SENSOR_EXPIRE_SECONDS 600u
+-#define MTTL_HA_ENTITIES 33
++#define MTTL_HA_ENTITIES 34
++/* Protection trip sensor. Appended last so every existing entity index keeps its
++ * meaning (HA discovery is write-once per index). */
++#define MTTL_HA_TRIP_INDEX 33
+ /* Full lowercase hexadecimal MAC identity, separate namespace from backend.
+  * Bounded JSON output, no credentials. 0 means invalid/capacity failure. */
+ size_t mttl_ha_discovery(const mttl_settings *,const char *id,unsigned index,char *topic,size_t topic_cap,char *json,size_t json_cap);
+diff --git a/source/standalone/host_test/protection_settings_test.c b/source/standalone/host_test/protection_settings_test.c
+index be56c9f..b135e15 100644
+--- a/source/standalone/host_test/protection_settings_test.c
++++ b/source/standalone/host_test/protection_settings_test.c
+@@ -1,12 +1,14 @@
+-/* Host-side regression test for the two modules whose defects are silent on the
+- * device: protection.c (trip logic, units, confirmation) and settings.c (the
+- * versioned codec that owns the stored Wi-Fi/MQTT credentials).
++/* Host-side regression test for the modules whose defects are silent on the
++ * device: protection.c (trip logic, units, confirmation), settings.c (the
++ * versioned codec that owns the stored credentials) and ha_discovery.c (the
++ * Home Assistant entity contract).
+  *
+  * Build with source/standalone/host_test/run.sh. Nothing in the firmware build
+  * references this file; the on-target selftest.c stays as it is.
+  */
+ #include <stdio.h>
+ #include <string.h>
++#include "ha_discovery.h"
+ #include "protection.h"
+ #include "settings.h"
+ 
+@@ -320,11 +322,46 @@ static void test_protection_cut_policy(void){
+     CHECK(mttl_protection_round(&p,&c,6,0,1001,0,ci)&&p.cut_mask);
+ }
+ 
++/* The HA entity contract. The trip sensor is appended, so every shipped index
++ * must keep its component, key and state topic. */
++static void test_ha_trip_discovery(void){
++    mttl_settings s;char topic[192],json[1024];size_t n;
++    mttl_settings_default(&s);
++    strcpy(s.device,"MTTL-Test");
++    strcpy(s.channel[0],"TV");strcpy(s.channel[1],"SBar");
++    strcpy(s.channel[2],"SW 3");strcpy(s.channel[3],"SW 4");
++    CHECK(MTTL_HA_ENTITIES==34&&MTTL_HA_TRIP_INDEX==MTTL_HA_ENTITIES-1);
++    n=mttl_ha_discovery(&s,"aabbccddeeff",MTTL_HA_TRIP_INDEX,topic,sizeof(topic),json,sizeof(json));
++    CHECK(n>0&&n<sizeof(json));
++    CHECK(!strcmp(topic,"homeassistant/sensor/mttl_cddeeff_protection/config"));
++    CHECK(strstr(json,"\"stat_t\":\"~/protection\"")!=0);
++    CHECK(strstr(json,"\"uniq_id\":\"mttl_cddeeff_protection\"")!=0);
++    CHECK(strstr(json,"\"default_entity_id\":\"sensor.mttl_cddeeff_protection\"")!=0);
++    CHECK(strstr(json,"\"name\":\"Protection\"")!=0);
++    CHECK(strstr(json,"\"ent_cat\":\"diagnostic\"")!=0);
++    CHECK(strstr(json,"\"avty_t\":\"~/availability\"")!=0);
++    /* The state is the cut mask out of the published JSON object, the rest of
++     * that object becomes attributes, and it must not expire like a sample. */
++    CHECK(strstr(json,"\"val_tpl\":\"{{ value_json.mask }}\"")!=0);
++    CHECK(strstr(json,"\"json_attr_t\":\"~/protection\"")!=0);
++    CHECK(strstr(json,"\"exp_aft\"")==0);
++    CHECK(mttl_ha_discovery(&s,"aabbccddeeff",0,topic,sizeof(topic),json,sizeof(json))>0&&
++          !strcmp(topic,"homeassistant/switch/mttl_cddeeff_all/config"));
++    CHECK(mttl_ha_discovery(&s,"aabbccddeeff",5,topic,sizeof(topic),json,sizeof(json))>0&&
++          !strcmp(topic,"homeassistant/sensor/mttl_cddeeff_powerall/config"));
++    CHECK(mttl_ha_discovery(&s,"aabbccddeeff",25,topic,sizeof(topic),json,sizeof(json))>0&&
++          !strcmp(topic,"homeassistant/number/mttl_cddeeff_timer1/config"));
++    CHECK(mttl_ha_discovery(&s,"aabbccddeeff",32,topic,sizeof(topic),json,sizeof(json))>0&&
++          !strcmp(topic,"homeassistant/sensor/mttl_cddeeff_timer_remaining4/config"));
++    CHECK(!mttl_ha_discovery(&s,"aabbccddeeff",MTTL_HA_ENTITIES,topic,sizeof(topic),json,sizeof(json)));
++}
++
+ int main(void){
+     test_protection_aggregate();
+     test_protection_bounds();
+     test_protection_per_channel();
+     test_protection_cut_policy();
++    test_ha_trip_discovery();
+     test_settings_v8();
+     test_settings_rejections();
+     test_settings_migration();
+diff --git a/source/standalone/host_test/run.sh b/source/standalone/host_test/run.sh
+index 7c75742..772f9ec 100755
+--- a/source/standalone/host_test/run.sh
++++ b/source/standalone/host_test/run.sh
+@@ -22,6 +22,6 @@ if "$CC" -Werror -Wno-misleading-indentation -x c -c /dev/null -o /dev/null >/de
+ fi
+ "$CC" -std=c99 -Wall -Wextra -Werror $EXTRA -O1 \
+     -I"$FW" \
+-    "$HERE/protection_settings_test.c" "$FW/protection.c" "$FW/settings.c" "$FW/scheduler.c" \
++    "$HERE/protection_settings_test.c" "$FW/protection.c" "$FW/settings.c" "$FW/scheduler.c" "$FW/ha_discovery.c" \
+     -o "$OUT/protection_settings_test"
+ exec "$OUT/protection_settings_test"
