@@ -1,0 +1,1008 @@
+diff --git a/source/standalone/build_assets.py b/source/standalone/build_assets.py
+index 4034874..04c48a6 100644
+--- a/source/standalone/build_assets.py
++++ b/source/standalone/build_assets.py
+@@ -21,11 +21,11 @@ html=html.replace('<section id="device" class="active"','<section id="device"')
+ html=html.replace('<section id="wifi" role=','<section id="wifi" class="active" role=')
+ if options.ota_test:
+     panel='''<section id="firmware" role="tabpanel" aria-labelledby="tab-firmware"><div class="panel">
+-<h2 data-i18n="firmware">펌웨어</h2><div class="sensor"><span data-i18n="currentVersion">현재 버전</span><b id="current-firmware-version">2.0.17</b></div>
++<h2 data-i18n="firmware">Firmware</h2><div class="sensor"><span data-i18n="currentVersion">Current version</span><b id="current-firmware-version">2.0.17</b></div>
+ <div class="sensor"><span>Build ID</span><b id="current-build-id">—</b></div>
+ <p id="ota-hint" class="muted"></p><form id="firmware-form">
+ <label id="ota-file-label" for="firmware-picker"></label><input id="firmware-file" type="file" accept=".fwr" hidden>
+-<div class="file-picker"><button id="firmware-picker" type="button" data-i18n="chooseFirmwareFile">파일 선택</button><span id="firmware-selected" class="muted" aria-live="polite"></span></div>
++<div class="file-picker"><button id="firmware-picker" type="button" data-i18n="chooseFirmwareFile">Choose file</button><span id="firmware-selected" class="muted" aria-live="polite"></span></div>
+ <div class="row"><button id="firmware-verify" type="button" hidden></button><button id="firmware-update" class="primary" disabled></button></div></form>
+ <div id="firmware-status" class="status" role="status" aria-live="polite"></div></div></section>'''
+     html=re.sub(r'<section id="firmware".*?</section>',lambda _:panel,html,flags=re.S)
+@@ -47,7 +47,7 @@ html=re.sub(r'<title>.*?</title>', '<title>MTTL-W01</title>',html,flags=re.S)
+ html=re.sub(r'<p class="note".*?</p>', '',html,flags=re.S)
+ html=re.sub(r'<span class="badge".*?</span>', '',html,flags=re.S)
+ html=html.replace('.note,','')
+-for before,after in [('data-i18n="scan"','data-i18n="realScan"'),('data-i18n="connect"','data-i18n="realConnect"'),('data-i18n="saveMock"','data-i18n="saveDevice"'),('Wi-Fi 검색 모의','Wi-Fi 검색'),('연결 모의','연결'),('저장 모의','기기에 저장')]:
++for before,after in [('data-i18n="scan"','data-i18n="realScan"'),('data-i18n="connect"','data-i18n="realConnect"'),('data-i18n="saveMock"','data-i18n="saveDevice"'),('Simulate Wi-Fi scan','Scan Wi-Fi'),('Simulate connection','Connect'),('Simulate saving','Save to device')]:
+     html=html.replace(before,after)
+ assert not any(sample in html for sample in ('192.0.2.10','02:00:00:00:00:01','SIMULATED_AP','1.551 kWh','220.0 V'))
+ html=re.sub(r'<!--.*?-->','',html,flags=re.S)
+@@ -74,15 +74,14 @@ sources[0]=('/', 'text/html; charset=utf-8',html.encode())
+ messages=json.loads(subprocess.check_output(['node','-e',
+     'console.log(JSON.stringify(require(process.argv[1]).messages))',
+     str(ROOT/'standalone/ui/i18n.js')],text=True,encoding='utf-8'))
+-messages['ko']['saveDevice']='기기에 저장';messages['en']['saveDevice']='Save to device'
++assert set(messages)=={'en'},'The dashboard ships English only'
+ # The broad literal-key scan also sees element IDs such as 'scan'/'online'.
+ # Those are not calls to preview translations; explicitly exclude their text.
+ preview_keys={'title','simulation','note','online','hold','holdHint','scan','connect','saveMock','enabled','wifiConnected','firmwareHint','updateMock','progressLabel','firmwareStep2','firmwareStep3','inspectionPassed','uploading','rechecking','rebooting','updateComplete','log_started','log_wifi','log_fwComplete','deviceIntegration','liveNote'}
+-messages={lang:{key:value for key,value in values.items() if key not in preview_keys} for lang,values in messages.items()}
++messages={'en':{key:value for key,value in messages['en'].items() if key not in preview_keys}}
+ used='\n'.join(data.decode('utf-8') for path,kind,data in sources if path!='/i18n.js')
+-messages={lang:{key:value for key,value in values.items() if any(quote+key+quote in used for quote in ('"',"'")) or key.startswith('netState')}
+-          for lang,values in messages.items()}
+-compact='globalThis.MttlI18n={messages:'+json.dumps(messages,ensure_ascii=False,separators=(',',':'))+',text:(language,key,args={})=>{const value=MttlI18n.messages[language==="en"?"en":"ko"][key];if(value===undefined)throw Error("Missing translation: "+key);return value.replace(/\\{(\\w+)\\}/g,(_,name)=>String(args[name]??""));}};'
++messages={'en':{key:value for key,value in messages['en'].items() if any(quote+key+quote in used for quote in ('"',"'")) or key.startswith('netState')}}
++compact='globalThis.MttlI18n={messages:'+json.dumps(messages,ensure_ascii=False,separators=(',',':'))+',text:(language,key,args={})=>{const value=MttlI18n.messages.en[key];if(value===undefined)throw Error("Missing translation: "+key);return value.replace(/\\{(\\w+)\\}/g,(_,name)=>String(args[name]??""));}};'
+ sources=[(path,kind,compact.encode() if path=='/i18n.js' else data) for path,kind,data in sources]
+ lines=['/* Generated gzip UI assets. Do not edit by hand. */','#include <stddef.h>',
+        'typedef struct { const char *path,*type; const unsigned char *data; size_t size; } mttl_asset;']
+@@ -95,7 +94,8 @@ for i,(path,kind,data) in enumerate(sources):
+         data=subprocess.check_output(['node',str(ROOT/'standalone/minify_ui.cjs')],input=data)
+     if options.ota_test:
+         text=data.decode('utf-8').lower()
+-        assert not any(word in text for word in ('초안','모의','흐름 확인','draft','simulat','experimental')), 'Preview text in device asset: '+path
++        assert not re.search(r'[\uac00-\ud7a3]',text), 'Korean text in device asset: '+path
++        assert not any(word in text for word in ('draft','simulat','experimental')), 'Preview text in device asset: '+path
+     zipped=zopfli.gzip.compress(data,numiterations=30)
+     assert gzip.decompress(zipped)==data
+     lines.append('static const unsigned char mttl_asset_%d[]={%s};'%(i,','.join(map(str,zipped))))
+diff --git a/source/standalone/firmware/settings.c b/source/standalone/firmware/settings.c
+index 1de4ba4..fa4e278 100644
+--- a/source/standalone/firmware/settings.c
++++ b/source/standalone/firmware/settings.c
+@@ -32,6 +32,9 @@ int mttl_settings_utf8(const char *s,size_t cap){return s&&cap&&utf8(s,cap,0);}
+ void mttl_settings_default(mttl_settings *s){
+     size_t i;const char name[]="MTTL-W01";unsigned char *p=(unsigned char *)s;
+     for(i=0;i<sizeof(*s);i++)p[i]=0;
++    /* The dashboard ships English only, so a fresh record starts English. A
++     * stored 0 (Korean) stays valid and readable: it still renders English. */
++    s->language=1;
+     for(i=0;i<sizeof(name);i++)s->device[i]=name[i];
+     for(i=0;i<4;i++){s->channel[i][0]='S';s->channel[i][1]='W';s->channel[i][2]=' ';s->channel[i][3]=(char)('1'+i);}
+     s->port=1883;s->topic[0]='m';s->topic[1]='t';s->topic[2]='t';s->topic[3]='l';
+diff --git a/source/standalone/tests/test_dashboard_loading.cjs b/source/standalone/tests/test_dashboard_loading.cjs
+index 33f310d..de89a00 100644
+--- a/source/standalone/tests/test_dashboard_loading.cjs
++++ b/source/standalone/tests/test_dashboard_loading.cjs
+@@ -9,8 +9,8 @@ async function run(){
+  timers.shift().fn();assert.equal(scripts[1].src,'/i18n.js');scripts[1].onload();
+  assert.equal(notices[0].removed,true);assert.equal(scripts[2].src,'/live.js');
+  scripts[2].onerror();timers.shift().fn();scripts[3].onload();assert.equal(scripts.length,4);
+- const ids=['ota-hint','ota-file-label','firmware-update','firmware-status','firmware-picker','firmware-selected','firmware-file','language','firmware-form','current-build-id'];
+- const nodes=Object.fromEntries(ids.map(id=>[id,{files:[],click(){}}]));nodes.language.onclick=()=>{};
++ const ids=['ota-hint','ota-file-label','firmware-update','firmware-status','firmware-picker','firmware-selected','firmware-file','firmware-form','current-build-id'];
++ const nodes=Object.fromEntries(ids.map(id=>[id,{files:[],click(){}}]));
+  let tab,visible,calls=0,fail=true,pending=false;
+  const jobs=new Map();let seq=0;
+  const doc={documentElement:{lang:'en'},getElementById:id=>nodes[id],querySelector:()=>({addEventListener:(event,fn)=>tab=fn}),addEventListener:(event,fn)=>visible=fn};
+diff --git a/source/standalone/tests/test_ota_live.cjs b/source/standalone/tests/test_ota_live.cjs
+index 9e4b7ea..fbd5968 100644
+--- a/source/standalone/tests/test_ota_live.cjs
++++ b/source/standalone/tests/test_ota_live.cjs
+@@ -1,18 +1,17 @@
+ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+-const ids=['ota-hint','ota-file-label','firmware-update','firmware-status','firmware-picker','firmware-selected','firmware-file','language','firmware-form','firmware-expected','ota-token','current-build-id'];
++const ids=['ota-hint','ota-file-label','firmware-update','firmware-status','firmware-picker','firmware-selected','firmware-file','firmware-form','firmware-expected','ota-token','current-build-id'];
+ const elements=Object.fromEntries(ids.map(id=>[id,{textContent:'',value:'',files:[],click(){this.clicked=true;}}]));
+-const document={documentElement:{lang:'ko'},getElementById:id=>elements[id]};
+-elements.language.onclick=()=>{document.documentElement.lang=document.documentElement.lang==='ko'?'en':'ko';};
++const document={documentElement:{lang:'en'},getElementById:id=>elements[id]};
+ let posts=[],valid=true,confirmed=true,responseText=null,networkError=null,statusBuild='0123456789abcdef';
+ const storage=new Map();
+-const context={document,localStorage:{setItem:(k,v)=>storage.set(k,v),getItem:k=>storage.get(k),removeItem:k=>storage.delete(k)},MttlI18n:{text:()=>document.documentElement.lang==='en'?'No file selected':'선택된 파일 없음'},confirm:()=>confirmed,AbortController,setTimeout:()=>1,clearTimeout(){},fetch:async(url,options={})=>{
++const context={document,localStorage:{setItem:(k,v)=>storage.set(k,v),getItem:k=>storage.get(k),removeItem:k=>storage.delete(k)},MttlI18n:{text:()=>'No file selected'},confirm:()=>confirmed,AbortController,setTimeout:()=>1,clearTimeout(){},fetch:async(url,options={})=>{
+  if(url.endsWith('/status'))return {ok:true,json:async()=>({ota_ready:true,build_id:statusBuild})};
+  posts.push({url,options});if(networkError)throw networkError;return {ok:valid,status:valid?200:400,text:async()=>responseText??JSON.stringify({written:valid,activated:valid})};
+ }};
+ async function run(){
+  vm.runInNewContext(fs.readFileSync(require('node:path').join(__dirname,'../ui/ota-live.js'),'utf8'),context);
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(elements['firmware-update'].disabled,false);
+- elements.language.onclick();assert.match(elements['ota-hint'].textContent,/power/);assert.equal(elements['firmware-update'].textContent,'Update');
++ assert.match(elements['ota-hint'].textContent,/power/);assert.equal(elements['firmware-update'].textContent,'Update');
+  await elements['firmware-form'].onsubmit({preventDefault(){}});assert.equal(posts.length,0);assert.match(elements['firmware-status'].textContent,/Select a valid/);
+  elements['firmware-file'].files=[{name:'image.bin',size:100}];
+  await elements['firmware-form'].onsubmit({preventDefault(){}});assert.equal(posts.length,0);
+@@ -42,7 +41,7 @@ async function run(){
+  responseText=JSON.stringify({already_installed:true,activated:false,rebooting:false});
+  vm.runInNewContext(fs.readFileSync(require('node:path').join(__dirname,'../ui/ota-live.js'),'utf8'),context);await new Promise(resolve=>setImmediate(resolve));
+  await elements['firmware-form'].onsubmit({preventDefault(){}});assert.match(elements['firmware-status'].textContent,/already installed/);assert.equal(elements['firmware-update'].disabled,false);assert.equal(storage.has('mttl.ota.pending-build'),false);
+- elements.language.onclick();assert.match(elements['firmware-status'].textContent,/이미 설치된 펌웨어/);
++ assert.match(elements['firmware-status'].textContent,/already installed/);
+  console.log(JSON.stringify({checks:31,failed:0,scope:'Mock OTA dashboard form; no device writes'}));
+ }
+ run().catch(e=>{console.error(e);process.exitCode=1;});
+diff --git a/source/standalone/tests/test_ota_reconnect.cjs b/source/standalone/tests/test_ota_reconnect.cjs
+index 22ae5cc..4f7ed2f 100644
+--- a/source/standalone/tests/test_ota_reconnect.cjs
++++ b/source/standalone/tests/test_ota_reconnect.cjs
+@@ -1,7 +1,7 @@
+ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),path=require('node:path');
+ async function scenario(mode){
+- const ids=['ota-hint','ota-file-label','firmware-update','firmware-status','firmware-picker','firmware-selected','firmware-file','language','firmware-form','current-build-id'];
+- const nodes=Object.fromEntries(ids.map(id=>[id,{files:[],click(){}}]));nodes.language.onclick=()=>{};
++ const ids=['ota-hint','ota-file-label','firmware-update','firmware-status','firmware-picker','firmware-selected','firmware-file','firmware-form','current-build-id'];
++ const nodes=Object.fromEntries(ids.map(id=>[id,{files:[],click(){}}]));
+  let now=0,serial=0,posts=0,reloads=0,build='0123456789abcdef',offline=false;const jobs=new Map();
+  const document={documentElement:{lang:'en'},getElementById:id=>nodes[id]};
+  const location={reload(){reloads++;}};
+diff --git a/source/standalone/ui/app.js b/source/standalone/ui/app.js
+index 0214ec1..901b483 100644
+--- a/source/standalone/ui/app.js
++++ b/source/standalone/ui/app.js
+@@ -5,21 +5,20 @@
+   const timerEnds=[0,0,0,0];
+   function setChannel(i,on){if(on&&!states[i]&&preferences.timerMinutes[i])timerEnds[i]=Date.now()+preferences.timerMinutes[i]*60000;if(!on)timerEnds[i]=0;states[i]=on;}
+   function validName(value){return typeof value==='string'&&value.trim().length>0&&new TextEncoder().encode(value.trim()).length<=64&&!/[\x00-\x1f\x7f]/.test(value);}
+-  let preferences={language:'ko',deviceName:null,channelNames:[null,null,null,null],buttonLocks:[false,false,false,false],timerMinutes:[0,0,0,0]};
++  let preferences={deviceName:null,channelNames:[null,null,null,null],buttonLocks:[false,false,false,false],timerMinutes:[0,0,0,0]};
+   try{
+     const saved=JSON.parse(localStorage.getItem(PREF_KEY)||'null');
+     if(saved&&typeof saved==='object'){
+-      if(saved.language==='ko'||saved.language==='en')preferences.language=saved.language;
+       if(validName(saved.deviceName))preferences.deviceName=saved.deviceName.trim();
+       if(Array.isArray(saved.channelNames)&&saved.channelNames.length===4)preferences.channelNames=saved.channelNames.map(name=>validName(name)?name.trim():null);
+       if(Array.isArray(saved.buttonLocks)&&saved.buttonLocks.length===4&&saved.buttonLocks.every(value=>typeof value==='boolean'))preferences.buttonLocks=saved.buttonLocks;
+       if(Array.isArray(saved.timerMinutes)&&saved.timerMinutes.length===4&&saved.timerMinutes.every(v=>Number.isInteger(v)&&v>=0&&v<=1440))preferences.timerMinutes=saved.timerMinutes;
+     }
+   }catch(error){/* Storage may be unavailable in a local-file browser. */}
+-  const t=(key,args={})=>MttlI18n.text(preferences.language,key,args);
++  const t=(key,args={})=>MttlI18n.text('en',key,args);
+   const schedule=()=>MttlSchedule.decode(localStorage.getItem('mttl.preview.schedule')||MttlSchedule.encode(MttlSchedule.defaults()));
+-  const scheduleEditor=MttlSchedule.mount({language:()=>preferences.language,available:()=>true,timers:()=>preferences.timerMinutes,save:async hex=>{MttlTimer.valid(preferences.timerMinutes,MttlSchedule.decode(hex));localStorage.setItem('mttl.preview.schedule',hex);timerEditor.translate();}});
+-  const timerEditor=MttlTimer.mount({language:()=>preferences.language,available:()=>true,schedule,save:async minutes=>{MttlTimer.valid(minutes,schedule());minutes.forEach((m,i)=>{if(m!==preferences.timerMinutes[i])timerEnds[i]=m&&states[i]?Date.now()+m*60000:0;});preferences.timerMinutes=minutes;persist();scheduleEditor.translate();render();}});
++  const scheduleEditor=MttlSchedule.mount({available:()=>true,timers:()=>preferences.timerMinutes,save:async hex=>{MttlTimer.valid(preferences.timerMinutes,MttlSchedule.decode(hex));localStorage.setItem('mttl.preview.schedule',hex);timerEditor.translate();}});
++  const timerEditor=MttlTimer.mount({available:()=>true,schedule,save:async minutes=>{MttlTimer.valid(minutes,schedule());minutes.forEach((m,i)=>{if(m!==preferences.timerMinutes[i])timerEnds[i]=m&&states[i]?Date.now()+m*60000:0;});preferences.timerMinutes=minutes;persist();scheduleEditor.translate();render();}});
+   timerEditor.load(preferences.timerMinutes);
+   try{scheduleEditor.load(localStorage.getItem('mttl.preview.schedule')||MttlSchedule.encode(MttlSchedule.defaults()));}catch(_){scheduleEditor.load(MttlSchedule.encode(MttlSchedule.defaults()));}
+   function persist(){try{localStorage.setItem(PREF_KEY,JSON.stringify(preferences));return true;}catch(error){return false;}}
+@@ -27,7 +26,7 @@
+   function status(id,key,error=false){statuses[id]=key?{key,error}:null;renderStatuses();}
+   function renderStatuses(){for(const [id,value] of Object.entries(statuses)){byId(id).className='status'+(value?.error?' error':'');byId(id).textContent=value?t(value.key):'';}}
+   function renderLogs(){
+-    byId('log').textContent=events.map(event=>event.at.toLocaleTimeString(preferences.language==='en'?'en-US':'ko-KR')+'  '+t(event.key,event.args)).join('\n');
++    byId('log').textContent=events.map(event=>event.at.toLocaleTimeString('en-US')+'  '+t(event.key,event.args)).join('\n');
+     if(byId('autoscroll').checked)byId('log').scrollTop=byId('log').scrollHeight;
+   }
+   function log(key,args={}){events.push({at:new Date(),key,args});if(events.length>64)events.shift();renderLogs();}
+@@ -36,7 +35,7 @@
+   const deviceName=()=>preferences.deviceName||t('deviceDefault');
+   const channelName=i=>preferences.channelNames[i]||t(i===0?'channelOneDefault':'channelDefault',{number:i+1});
+   let connectedAt=new Date(),connectedSsid='SIMULATED_AP',signal=-43;
+-  function time(){const locale=preferences.language==='en'?'en-US':'ko-KR';byId('clock').textContent=new Date().toLocaleString(locale);byId('connected').textContent=connectedAt.toLocaleString(locale);const s=Math.floor((Date.now()-boot)/1000);byId('uptime').textContent=t('duration',{days:Math.floor(s/86400),hours:Math.floor(s/3600)%24,minutes:Math.floor(s/60)%60,seconds:s%60});let changed=false;timerEnds.forEach((end,i)=>{if(end&&Date.now()>=end){setChannel(i,false);changed=true;}});if(changed)render();else showTimers();}
++  function time(){const locale='en-US';byId('clock').textContent=new Date().toLocaleString(locale);byId('connected').textContent=connectedAt.toLocaleString(locale);const s=Math.floor((Date.now()-boot)/1000);byId('uptime').textContent=t('duration',{days:Math.floor(s/86400),hours:Math.floor(s/3600)%24,minutes:Math.floor(s/60)%60,seconds:s%60});let changed=false;timerEnds.forEach((end,i)=>{if(end&&Date.now()>=end){setChannel(i,false);changed=true;}});if(changed)render();else showTimers();}
+   const timerLabels=[];
+   function showTimers(){const texts=timerLabels.map((node,i)=>{const s=timerEnds[i]?Math.max(0,Math.ceil((timerEnds[i]-Date.now())/1000)):preferences.timerMinutes[i]*60;const text=[Math.floor(s/3600),Math.floor(s/60)%60,s%60].map(v=>String(v).padStart(2,'0')).join(':');node.textContent=text;return t('timer')+' '+text;});timerEditor.show(texts);}
+   function renderNetwork(){byId('connected-ssid').textContent=connectedSsid||'—';byId('rssi').textContent=(signal===null?'—':signal)+' dBm';byId('online').textContent=t('online');}
+@@ -49,7 +48,7 @@
+       const title=document.createElement('h2');title.textContent=channelName(i);
+       const edit=document.createElement('button');edit.className='edit-name';edit.textContent='✎';edit.setAttribute('aria-label',t('editChannel',{number:i+1}));edit.setAttribute('title',t('editChannel',{number:i+1}));edit.addEventListener('click',()=>editNames(i));
+       const locked=preferences.buttonLocks[i],lock=document.createElement('button');lock.className='edit-name channel-lock';lock.textContent=locked?'🔒':'🔓';
+-      const hint=preferences.language==='en'?(locked?'Locked: this outlet ignores the buttons, the web UI, Home Assistant, its timer and the schedules':'Unlocked: every control can switch this outlet'):(locked?'잠김: 버튼·웹·HA·타이머·예약 모두 차단':'잠금 해제: 모든 제어 허용');
++      const hint=locked?'Locked: this outlet ignores the buttons, the web UI, Home Assistant, its timer and the schedules':'Unlocked: every control can switch this outlet';
+       lock.setAttribute('title',hint);lock.setAttribute('aria-label',hint);lock.setAttribute('aria-pressed',String(locked));lock.addEventListener('click',()=>{preferences.buttonLocks[i]=!preferences.buttonLocks[i];persist();render();});
+       header.append(edit,title,lock);card.append(header);
+       [['power',on?'10.0 W':'0.0 W'],['channelMeter',(0.1+i*0.05).toFixed(3)+' kWh'],['current',on?'0.100 A':'0.000 A'],['temperature',(24+i).toFixed(1)+' °C']].forEach(([key,value])=>{const row=document.createElement('div');row.className='sensor';const label=document.createElement('span'),data=document.createElement('b');label.textContent=t(key);data.textContent=value;row.append(label,data);card.append(row);});
+@@ -87,7 +86,7 @@
+   function protectionValues(){for(const key of ['temperature','current','power']){const input=byId('protect-'+key);byId('protect-'+key+'-value').textContent=(key==='current'?Number(input.value).toFixed(1):input.value)+' '+({temperature:'°C',current:'A',power:'W'}[key]);}}
+   for(const key of ['temperature','current','power'])byId('protect-'+key).addEventListener('input',protectionValues);
+   let firmwareGeneration=0,verifiedFirmware=null,firmwareBusy=false,firmwareMetadata=null;
+-  function renderFirmware(){if(!firmwareMetadata)return;byId('firmware-size').textContent=firmwareMetadata.size.toLocaleString(preferences.language==='en'?'en-US':'ko-KR')+' bytes';byId('firmware-version').textContent=firmwareMetadata.versions.join(', ')||t('unknown');byId('firmware-checksum').textContent='0x'+firmwareMetadata.checksum.toString(16).padStart(8,'0')+' · '+t('match');}
++  function renderFirmware(){if(!firmwareMetadata)return;byId('firmware-size').textContent=firmwareMetadata.size.toLocaleString('en-US')+' bytes';byId('firmware-version').textContent=firmwareMetadata.versions.join(', ')||t('unknown');byId('firmware-checksum').textContent='0x'+firmwareMetadata.checksum.toString(16).padStart(8,'0')+' · '+t('match');}
+   function resetFirmware(){if(firmwareBusy)return;firmwareGeneration++;verifiedFirmware=null;firmwareMetadata=null;byId('firmware-update').disabled=true;byId('firmware-info').hidden=true;byId('firmware-progress').hidden=true;byId('firmware-progress').value=0;status('firmware-status','chooseFile');}
+   function renderSelectedFile(){byId('firmware-selected').textContent=byId('firmware-file').files?.[0]?.name||t('noSelectedFile');}
+   byId('firmware-picker').addEventListener('click',()=>{if(!firmwareBusy)byId('firmware-file').click();});
+@@ -100,7 +99,7 @@
+       status('firmware-status','inspecting');const bytes=new Uint8Array(await file.arrayBuffer()),metadata=MttlFirmware.validate(bytes),digest=await MttlFirmware.sha256(bytes,crypto);MttlFirmware.expectedHash(digest,expected);
+       if(generation!==firmwareGeneration)return;verifiedFirmware={generation,metadata};firmwareMetadata=metadata;
+       byId('firmware-name').textContent=file.name;byId('firmware-format').textContent=metadata.format;byId('firmware-hash').textContent=digest;renderFirmware();byId('firmware-info').hidden=false;byId('firmware-update').disabled=false;status('firmware-status','inspectionPassed');log('log_fwPassed');
+-    }catch(error){if(generation===firmwareGeneration){status('firmware-status',error.code&&MttlI18n.messages.ko[error.code]?error.code:'fwRead',true);log('log_fwFailed');}}
++    }catch(error){if(generation===firmwareGeneration){status('firmware-status',error.code&&MttlI18n.messages.en[error.code]?error.code:'fwRead',true);log('log_fwFailed');}}
+     finally{byId('firmware-verify').disabled=false;}
+   });
+   byId('firmware-form').addEventListener('submit',async event=>{
+@@ -108,15 +107,14 @@
+     try{for(const [percent,key] of [[25,'uploading'],[70,'rechecking'],[90,'rebooting'],[100,'updateComplete']]){byId('firmware-progress').value=percent;status('firmware-status',key);await new Promise(resolve=>setTimeout(resolve,450));}log('log_fwComplete');verifiedFirmware=null;}
+     finally{firmwareBusy=false;['firmware-file','firmware-expected','firmware-verify'].forEach(id=>byId(id).disabled=false);}
+   });
+-  function applyLanguage(){
++  function applyText(){
+     scheduleEditor.translate();
+     timerEditor.translate();
+-    document.documentElement.lang=preferences.language;document.title=t('title');byId('language').textContent=preferences.language==='ko'?'English':'Korean';
++    document.documentElement.lang='en';document.title=t('title');
+     byId('current-firmware-version').textContent='2.0.17';
+     for(const [attribute,target] of [['data-i18n',null],['data-i18n-placeholder','placeholder'],['data-i18n-aria','aria-label']])document.querySelectorAll('['+attribute+']').forEach(element=>{const text=t(element.getAttribute(attribute));if(target)element.setAttribute(target,text);else element.textContent=text;});
+     for(let i=1;i<=4;i++)byId('channel-name-label-'+i).textContent=t('channelName',{number:i});
+     render();renderNetwork();renderStatuses();renderFirmware();renderSelectedFile();renderLogs();time();
+   }
+-  byId('language').addEventListener('click',()=>{preferences.language=preferences.language==='ko'?'en':'ko';persist();applyLanguage();});
+-  log('log_started');applyLanguage();setInterval(time,1000);
++  log('log_started');applyText();setInterval(time,1000);
+ })();
+diff --git a/source/standalone/ui/device-loader.js b/source/standalone/ui/device-loader.js
+index 976f822..1c2e569 100644
+--- a/source/standalone/ui/device-loader.js
++++ b/source/standalone/ui/device-loader.js
+@@ -4,7 +4,7 @@
+  let notice;
+  function message(){
+   if(!notice){notice=document.createElement('p');notice.setAttribute('role','status');notice.style.cssText='margin:16px;color:#b45309';document.body.appendChild(notice);}
+-  notice.textContent=document.documentElement.lang==='en'?'Loading dashboard. Retrying connection…':'화면을 불러오는 중입니다. 연결을 재시도합니다…';
++  notice.textContent='Loading dashboard. Retrying connection…';
+  }
+  function load(path,next){
+   const script=document.createElement('script');script.src=path;script.async=false;
+diff --git a/source/standalone/ui/firmware.js b/source/standalone/ui/firmware.js
+index ab0ee73..65dc140 100644
+--- a/source/standalone/ui/firmware.js
++++ b/source/standalone/ui/firmware.js
+@@ -19,12 +19,12 @@
+     return {body,load,entry,checksum,versions};
+   }
+   function validate(bytes){
+-    if(!(bytes instanceof Uint8Array)||bytes.length<44||bytes.length>FILE_CAP)throw failure('fwSize','파일 크기가 검사 범위를 벗어납니다.');
++    if(!(bytes instanceof Uint8Array)||bytes.length<44||bytes.length>FILE_CAP)throw failure('fwSize','The file size is outside the inspection budget.');
+     const decoded=Uint8Array.from(bytes);for(let i=16;i<decoded.length;i++)decoded[i]^=key[i%16];
+     for(const [format,data] of [['Image2 BIN',bytes],['LG U+ FWR (XOR)',decoded]]){
+       try{return {...inspect(data),format,size:bytes.length};}catch(error){/* try other representation */}
+     }
+-    throw failure('fwImage','Image2 헤더·진입점·파일 길이·체크섬 검사에 실패했습니다.');
++    throw failure('fwImage','Image2 header, entry point, file length or checksum validation failed.');
+   }
+   async function sha256(bytes,cryptoApi){
+     const digest=await cryptoApi.subtle.digest('SHA-256',bytes);
+@@ -32,8 +32,8 @@
+   }
+   function expectedHash(actual,expected){
+     if(!expected)return;
+-    if(!/^[0-9a-fA-F]{64}$/.test(expected))throw failure('fwHashSyntax','예상 SHA-256은 64자리 16진수여야 합니다.');
+-    if(actual!==expected.toLowerCase())throw failure('fwHashMismatch','예상 SHA-256과 파일이 일치하지 않습니다.');
++    if(!/^[0-9a-fA-F]{64}$/.test(expected))throw failure('fwHashSyntax','Expected SHA-256 must contain 64 hexadecimal digits.');
++    if(actual!==expected.toLowerCase())throw failure('fwHashMismatch','The file does not match the expected SHA-256.');
+   }
+   const api={validate,sha256,expectedHash,FILE_CAP};
+   if(typeof module==='object'&&module.exports)module.exports=api;
+diff --git a/source/standalone/ui/i18n.js b/source/standalone/ui/i18n.js
+index 3ef47a1..e0b04fe 100644
+--- a/source/standalone/ui/i18n.js
++++ b/source/standalone/ui/i18n.js
+@@ -1,90 +1,153 @@
++/* Dashboard strings: English only, one language by design.
++ * text(language,key,args) keeps its three-argument shape so existing call sites
++ * stay valid; the language argument is ignored. */
+ (function(root){
+   'use strict';
+-  const ko={
+-    protection:'보호 설정',protectTemperature:'고온 차단 · 채널 중 최고 온도',protectCurrent:'과전류 차단 · 전체 전류 및 콘센트별 전류',protectPower:'고전력 차단 · 전체 전력',
+-    applyProtection:'적용',
+-    protectionHint:'전류 한계는 전체 전류와 각 콘센트에 함께 적용됩니다. 한 콘센트가 한계를 넘으면 그 콘센트만 차단되고, 전체 전력 초과는 스트립 전체를 차단합니다. 온도 초과는 해당 콘센트만 차단합니다. 전류·전력은 2회 연속 초과 시 동작하며 측정 주기는 약 10초입니다.',
+-    title:'MTTL-W01 독립 펌웨어 화면 초안',simulation:'PC 모의 화면',language:'언어',
+-    note:'버튼과 설정 흐름을 확인하는 화면 초안입니다. 아래 값은 가상 데이터이며 실제 멀티탭·Wi-Fi·MQTT에는 연결하지 않습니다.',
+-    menu:'메뉴',device:'멀티탭',wifi:'Wi-Fi 설정',mqtt:'HA · MQTT',firmware:'펌웨어',logs:'로그',currentVersion:'현재 버전',
+-    deviceDefault:'거실 멀티탭',channelOneDefault:'거실 선풍기',channelDefault:'채널 {number}',
+-    rename:'이름 변경',editChannel:'채널 {number} 이름 변경',nameSettings:'기기 · 채널 이름',deviceName:'기기 이름',
+-    channelName:'채널 {number} 이름',nameHint:'이름은 저장 버튼을 눌렀을 때 반영됩니다. 각 이름은 UTF-8 64바이트 이내입니다.',
+-    saveNames:'이름 저장',cancel:'취소',nameInvalid:'기기와 채널 이름을 모두 입력해 주세요. 각 이름은 UTF-8 64바이트 이내이며 제어 문자는 사용할 수 없습니다.',
+-    namesSaved:'이름을 저장했습니다.',namesSession:'이름을 변경했습니다. 이 환경에서는 현재 화면에서만 유지됩니다.',
+-    connection:'연결',online:'Online · 모의',currentTime:'현재 시각',recentConnection:'최근 연결',uptime:'가동',seconds:'{count}초',duration:'{days}일 {hours}시간 {minutes}분 {seconds}초',
+-    totalPower:'전체 전력',meter:'누적 전력량',voltage:'전압',totalCurrent:'전체 전류',all:'전체',partial:'일부 켜짐',
+-    power:'전력',channelMeter:'누적',current:'전류',temperature:'온도',turnOff:'끄기',turnOn:'켜기',allOn:'전체 켜기',allOff:'전체 끄기',
+-    hold:'메인 버튼 10초 길게 누르기 모의',holdHint:'Wi-Fi 설정 모드 흐름 확인',
+-    wifiHint:'설정 AP 주소: 192.168.4.1 · Wi-Fi 목록을 검색하고 연결할 네트워크를 선택합니다.',
+-    scan:'Wi-Fi 검색 모의',network:'Wi-Fi SSID',scanFirst:'검색 후 선택',password:'암호',connect:'연결 모의',chooseFirmwareFile:'파일 선택',noSelectedFile:'선택된 파일 없음',
+-    apReady:'설정 AP 준비 · 192.168.4.1',ssidInvalid:'SSID를 선택해 주세요. SSID는 UTF-8 32바이트 이내여야 합니다.',
+-    wifiConnected:'연결·DHCP 완료 모의 · 192.0.2.10',mqttTitle:'Home Assistant · MQTT',broker:'Broker',port:'Port',
+-    username:'사용자',mqttEnable:'MQTT 연동 활성화',saveMock:'저장 모의',enabled:'Enabled · 연결 모의',disabled:'Disabled',
+-    firmwareHint:'현재: 독립 펌웨어 화면 초안 · 선택한 파일의 형식과 체크섬을 PC에서 검사합니다.',
+-    firmwareFile:'펌웨어 파일 (.fwr / Image2 .bin)',expectedHash:'예상 SHA-256 (선택)',hashPlaceholder:'배포자가 제공한 64자리 SHA-256',
+-    verifyFile:'파일 검사',updateMock:'업데이트 모의 실행',file:'파일',size:'크기',format:'형식',versionCandidates:'본문의 버전 후보',
+-    checksum:'체크섬',match:'일치',unknown:'확인 불가',progressLabel:'모의 업데이트 진행률',chooseFile:'파일을 선택하고 검사해 주세요.',
+-    firmwareStep1:'파일 형식·크기·진입점·체크섬 검사',firmwareStep2:'업로드 및 재검사 진행 모의',firmwareStep3:'재부팅·재연결 진행 모의',
+-    firmwareLimit:'형식 검사 통과는 실제 부팅 보증이 아닙니다. 이 화면은 파일을 서버나 기기에 전송하지 않으며, 실제 기록·재부팅은 연결되지 않았습니다.',
+-    noFile:'펌웨어 파일을 선택해 주세요.',fwSize:'파일 크기가 검사 범위를 벗어납니다.',fwCrypto:'이 브라우저 환경에서는 SHA-256 검사를 사용할 수 없습니다.',
+-    inspecting:'파일 검사 중…',inspectionPassed:'파일 형식·체크섬 검사 통과. 업데이트 진행을 모의 실행할 수 있습니다.',
+-    fwImage:'Image2 헤더·진입점·파일 길이·체크섬 검사에 실패했습니다.',fwHashSyntax:'예상 SHA-256은 64자리 16진수여야 합니다.',
+-    fwHashMismatch:'예상 SHA-256과 파일이 일치하지 않습니다.',fwRead:'파일을 읽거나 검사할 수 없습니다.',
+-    uploading:'업로드 진행 모의…',rechecking:'업로드 후 재검사 모의…',rebooting:'재부팅·재연결 모의…',
+-    updateComplete:'모의 업데이트 완료. 실제 기기와 펌웨어 버전은 변경되지 않았습니다.',
+-    eventLog:'이벤트 로그',autoscroll:'자동 스크롤',
+-    log_started:'화면 모의 실행 시작',log_relay:'채널 {number}: {state}',log_allOn:'전체 켜기',log_allOff:'전체 끄기',
+-    log_provision:'설정 모드 요청',log_scan:'Wi-Fi 검색 완료',log_wifi:'Wi-Fi 연결 모의 완료',log_mqttOn:'MQTT 활성화',log_mqttOff:'MQTT 비활성화',
+-    log_fwPassed:'펌웨어 파일 검사 통과',log_fwFailed:'펌웨어 파일 검사 실패',log_fwComplete:'펌웨어 업데이트 모의 완료',log_names:'기기·채널 이름 변경'
+-  };
+   const en={
+-    protection:'Protection',protectTemperature:'Temperature · highest channel',protectCurrent:'Overcurrent · total current and every outlet',protectPower:'Power · total power',
++    protection:'Protection',
++    protectTemperature:'Temperature · highest channel',
++    protectCurrent:'Overcurrent · total current and every outlet',
++    protectPower:'Power · total power',
+     applyProtection:'Apply',
+     protectionHint:'The current limit applies to the total and to every outlet on its own: an outlet over the limit is cut alone, while total power cuts the whole strip. A temperature trip cuts the blamed outlet. Current and power need two consecutive rounds; each channel is sampled about every 10 seconds.',
+-    title:'MTTL-W01 standalone firmware preview',simulation:'PC simulation',language:'Language',
++    title:'MTTL-W01 standalone firmware preview',
++    simulation:'PC simulation',
+     note:'A preview of controls and setup. Values are simulated; this page does not connect to a power strip, Wi-Fi or MQTT.',
+-    menu:'Menu',device:'Power strip',wifi:'Wi-Fi setup',mqtt:'HA · MQTT',firmware:'Firmware',logs:'Logs',currentVersion:'Current version',
+-    deviceDefault:'Living room power strip',channelOneDefault:'Living room fan',channelDefault:'Channel {number}',
+-    rename:'Edit names',editChannel:'Edit channel {number} name',nameSettings:'Device & channel names',deviceName:'Device name',
+-    channelName:'Channel {number} name',nameHint:'Names are applied when you press Save. Each name may contain up to 64 UTF-8 bytes.',
+-    saveNames:'Save names',cancel:'Cancel',nameInvalid:'Enter a name for the device and every channel. Each name must fit within 64 UTF-8 bytes and contain no control characters.',
+-    namesSaved:'Names saved.',namesSession:'Names updated. This environment keeps them only for the current page session.',
+-    connection:'Connection',online:'Online · simulated',currentTime:'Current time',recentConnection:'Last connected',uptime:'Uptime',seconds:'{count}s',duration:'{days}d {hours}h {minutes}m {seconds}s',
+-    totalPower:'Total Power',meter:'Meter',voltage:'Voltage',totalCurrent:'Total Current',all:'ALL',partial:'PARTIAL',
+-    power:'Power',channelMeter:'Meter',current:'Current',temperature:'Temp',turnOff:'Turn OFF',turnOn:'Turn ON',allOn:'All ON',allOff:'All OFF',
+-    hold:'Simulate holding the main button for 10 seconds',holdHint:'Open Wi-Fi setup mode',
++    menu:'Menu',
++    device:'Power strip',
++    wifi:'Wi-Fi setup',
++    mqtt:'HA · MQTT',
++    firmware:'Firmware',
++    logs:'Logs',
++    currentVersion:'Current version',
++    deviceDefault:'Living room power strip',
++    channelOneDefault:'Living room fan',
++    channelDefault:'Channel {number}',
++    rename:'Edit names',
++    editChannel:'Edit channel {number} name',
++    nameSettings:'Device & channel names',
++    deviceName:'Device name',
++    channelName:'Channel {number} name',
++    nameHint:'Names are applied when you press Save. Each name may contain up to 64 UTF-8 bytes.',
++    saveNames:'Save names',
++    cancel:'Cancel',
++    nameInvalid:'Enter a name for the device and every channel. Each name must fit within 64 UTF-8 bytes and contain no control characters.',
++    namesSaved:'Names saved.',
++    namesSession:'Names updated. This environment keeps them only for the current page session.',
++    connection:'Connection',
++    online:'Online · simulated',
++    currentTime:'Current time',
++    recentConnection:'Last connected',
++    uptime:'Uptime',
++    seconds:'{count}s',
++    duration:'{days}d {hours}h {minutes}m {seconds}s',
++    totalPower:'Total Power',
++    meter:'Meter',
++    voltage:'Voltage',
++    totalCurrent:'Total Current',
++    all:'ALL',
++    partial:'PARTIAL',
++    power:'Power',
++    channelMeter:'Meter',
++    current:'Current',
++    temperature:'Temp',
++    turnOff:'Turn OFF',
++    turnOn:'Turn ON',
++    allOn:'All ON',
++    allOff:'All OFF',
++    hold:'Simulate holding the main button for 10 seconds',
++    holdHint:'Open Wi-Fi setup mode',
+     wifiHint:'Setup AP address: 192.168.4.1 · Scan for Wi-Fi networks, then select one to connect.',
+-    scan:'Simulate Wi-Fi scan',network:'Wi-Fi SSID',scanFirst:'Scan to select',password:'Password',connect:'Simulate connection',chooseFirmwareFile:'Choose file',noSelectedFile:'No file selected',
+-    apReady:'Setup AP ready · 192.168.4.1',ssidInvalid:'Select an SSID. It must fit within 32 UTF-8 bytes.',
+-    wifiConnected:'Connection and DHCP simulated · 192.0.2.10',mqttTitle:'Home Assistant · MQTT',broker:'Broker',port:'Port',
+-    username:'Username',mqttEnable:'Enable MQTT integration',saveMock:'Simulate saving',enabled:'Enabled · simulated connection',disabled:'Disabled',
++    scan:'Simulate Wi-Fi scan',
++    network:'Wi-Fi SSID',
++    scanFirst:'Scan to select',
++    password:'Password',
++    connect:'Simulate connection',
++    chooseFirmwareFile:'Choose file',
++    noSelectedFile:'No file selected',
++    apReady:'Setup AP ready · 192.168.4.1',
++    ssidInvalid:'Select an SSID. It must fit within 32 UTF-8 bytes.',
++    wifiConnected:'Connection and DHCP simulated · 192.0.2.10',
++    mqttTitle:'Home Assistant · MQTT',
++    broker:'Broker',
++    port:'Port',
++    username:'Username',
++    mqttEnable:'Enable MQTT integration',
++    saveMock:'Simulate saving',
++    enabled:'Enabled · simulated connection',
++    disabled:'Disabled',
+     firmwareHint:'Current: standalone firmware preview · Inspect the selected file format and checksum on this PC.',
+-    firmwareFile:'Firmware file (.fwr / Image2 .bin)',expectedHash:'Expected SHA-256 (optional)',hashPlaceholder:'64-digit SHA-256 provided by the publisher',
+-    verifyFile:'Inspect file',updateMock:'Simulate update',file:'File',size:'Size',format:'Format',versionCandidates:'Version candidates in the image',
+-    checksum:'Checksum',match:'matches',unknown:'Unknown',progressLabel:'Simulated update progress',chooseFile:'Choose a file, then inspect it.',
+-    firmwareStep1:'Inspect format, size, entry point and checksum',firmwareStep2:'Simulate upload and verification',firmwareStep3:'Simulate restart and reconnection',
++    firmwareFile:'Firmware file (.fwr / Image2 .bin)',
++    expectedHash:'Expected SHA-256 (optional)',
++    hashPlaceholder:'64-digit SHA-256 provided by the publisher',
++    verifyFile:'Inspect file',
++    updateMock:'Simulate update',
++    file:'File',
++    size:'Size',
++    format:'Format',
++    versionCandidates:'Version candidates in the image',
++    checksum:'Checksum',
++    match:'matches',
++    unknown:'Unknown',
++    progressLabel:'Simulated update progress',
++    chooseFile:'Choose a file, then inspect it.',
++    firmwareStep1:'Inspect format, size, entry point and checksum',
++    firmwareStep2:'Simulate upload and verification',
++    firmwareStep3:'Simulate restart and reconnection',
+     firmwareLimit:'Passing inspection does not guarantee boot compatibility. This page does not transmit the file to a server or device; flash writing and restart are not connected.',
+-    noFile:'Choose a firmware file.',fwSize:'The file size is outside the inspection budget.',fwCrypto:'SHA-256 inspection is unavailable in this browser context.',
+-    inspecting:'Inspecting file…',inspectionPassed:'Format and checksum passed. You can simulate the update process.',
+-    fwImage:'Image2 header, entry point, file length or checksum validation failed.',fwHashSyntax:'Expected SHA-256 must contain 64 hexadecimal digits.',
+-    fwHashMismatch:'The file does not match the expected SHA-256.',fwRead:'The file could not be read or inspected.',
+-    uploading:'Simulating upload…',rechecking:'Simulating verification after upload…',rebooting:'Simulating restart and reconnection…',
++    noFile:'Choose a firmware file.',
++    fwSize:'The file size is outside the inspection budget.',
++    fwCrypto:'SHA-256 inspection is unavailable in this browser context.',
++    inspecting:'Inspecting file…',
++    inspectionPassed:'Format and checksum passed. You can simulate the update process.',
++    fwImage:'Image2 header, entry point, file length or checksum validation failed.',
++    fwHashSyntax:'Expected SHA-256 must contain 64 hexadecimal digits.',
++    fwHashMismatch:'The file does not match the expected SHA-256.',
++    fwRead:'The file could not be read or inspected.',
++    uploading:'Simulating upload…',
++    rechecking:'Simulating verification after upload…',
++    rebooting:'Simulating restart and reconnection…',
+     updateComplete:'Simulation complete. The real device and firmware version have not changed.',
+-    eventLog:'Event log',autoscroll:'Auto-scroll',
+-    log_started:'Preview simulation started',log_relay:'Channel {number}: {state}',log_allOn:'All ON',log_allOff:'All OFF',
+-    log_provision:'Setup mode requested',log_scan:'Wi-Fi scan completed',log_wifi:'Wi-Fi connection simulation completed',log_mqttOn:'MQTT enabled',log_mqttOff:'MQTT disabled',
+-    log_fwPassed:'Firmware inspection passed',log_fwFailed:'Firmware inspection failed',log_fwComplete:'Firmware update simulation completed',log_names:'Device and channel names changed'
+-  };
+-  Object.assign(ko,{deviceIntegration:'기기 연결 초안',liveNote:'Wi-Fi API 연결용 초안입니다. 계측·릴레이·MQTT·OTA는 아직 연결되지 않았습니다. Wi-Fi 설정은 RAM에, 이름은 브라우저에만 저장됩니다.',integrationPending:'미연결',apiUnavailable:'응답 없음',realScan:'Wi-Fi 검색',realConnect:'연결',scanProgress:'검색 중…',scanDone:'검색 완료',connectAccepted:'접속 요청을 받았습니다. AP가 종료되면 기기의 새 IP로 접속하세요.',browserNames:'이 브라우저에 이름을 저장했습니다.',netState0:'정지',netState1:'종료 중',netState2:'설정 AP',netState3:'접속 중',netState4:'IP 할당 중',netState5:'연결됨',netState6:'오류'});
+-  Object.assign(en,{deviceIntegration:'Device integration draft',liveNote:'Wi-Fi API integration draft. Meter, relay, MQTT and OTA are not connected. Wi-Fi settings are in RAM; names are stored only in this browser.',integrationPending:'Not connected',apiUnavailable:'No response',realScan:'Scan Wi-Fi',realConnect:'Connect',scanProgress:'Scanning…',scanDone:'Scan completed',connectAccepted:'Connection requested. After the AP closes, open the device at its new IP.',browserNames:'Names saved in this browser.',netState0:'Stopped',netState1:'Stopping',netState2:'Setup AP',netState3:'Connecting',netState4:'Obtaining IP',netState5:'Connected',netState6:'Fault'});
+-  ko.liveNote='실험용 기기 펌웨어입니다. Wi-Fi·이름·MQTT 설정을 기기 플래시에 저장합니다. 웹 OTA는 /ota에서 시험할 수 있으며, 릴레이·계측은 아직 비활성화되어 있습니다.';
+-  en.liveNote='Experimental device firmware. Wi-Fi, names and MQTT settings are saved in device flash. Web OTA is available at /ota; relay and meter control remain disabled.';
+-  Object.assign(ko,{scanFailed:'Wi-Fi 검색 시작 실패 · 설정 화면만 남기고 다른 탭을 닫은 뒤 다시 시도하세요.',scanTimeout:'Wi-Fi 검색 대기 시간 초과 · 잠시 후 다시 시도하세요.'});
+-  Object.assign(en,{scanFailed:'Wi-Fi scan could not start. Close other device tabs and retry.',scanTimeout:'Wi-Fi scan timed out. Please retry shortly.'});
+-  ko.scheduler='스케줄러';en.scheduler='Scheduler';ko.timer='타이머';en.timer='Timer';
+-  const api={messages:{ko,en},text:(language,key,args={})=>{
+-    const message=(language==='en'?en:ko)[key];
++    eventLog:'Event log',
++    autoscroll:'Auto-scroll',
++    log_started:'Preview simulation started',
++    log_relay:'Channel {number}: {state}',
++    log_allOn:'All ON',
++    log_allOff:'All OFF',
++    log_provision:'Setup mode requested',
++    log_scan:'Wi-Fi scan completed',
++    log_wifi:'Wi-Fi connection simulation completed',
++    log_mqttOn:'MQTT enabled',
++    log_mqttOff:'MQTT disabled',
++    log_fwPassed:'Firmware inspection passed',
++    log_fwFailed:'Firmware inspection failed',
++    log_fwComplete:'Firmware update simulation completed',
++    log_names:'Device and channel names changed',
++    deviceIntegration:'Device integration draft',
++    liveNote:'Experimental device firmware. Wi-Fi, names and MQTT settings are saved in device flash. Web OTA is available at /ota; relay and meter control remain disabled.',
++    integrationPending:'Not connected',
++    apiUnavailable:'No response',
++    realScan:'Scan Wi-Fi',
++    realConnect:'Connect',
++    scanProgress:'Scanning…',
++    scanDone:'Scan completed',
++    connectAccepted:'Connection requested. After the AP closes, open the device at its new IP.',
++    browserNames:'Names saved in this browser.',
++    netState0:'Stopped',
++    netState1:'Stopping',
++    netState2:'Setup AP',
++    netState3:'Connecting',
++    netState4:'Obtaining IP',
++    netState5:'Connected',
++    netState6:'Fault',
++    scanFailed:'Wi-Fi scan could not start. Close other device tabs and retry.',
++    scanTimeout:'Wi-Fi scan timed out. Please retry shortly.',
++    scheduler:'Scheduler',
++    timer:'Timer',
++    saveDevice:'Save to device',
++    };
++  const api={messages:{en},text:(language,key,args={})=>{
++    const message=en[key];
+     if(message===undefined)throw Error('Missing translation: '+key);
+     return message.replace(/\{(\w+)\}/g,(_,name)=>String(args[name]??''));
+   }};
+diff --git a/source/standalone/ui/index.html b/source/standalone/ui/index.html
+index 3477d94..e0e009f 100644
+--- a/source/standalone/ui/index.html
++++ b/source/standalone/ui/index.html
+@@ -1,8 +1,8 @@
+ <!doctype html>
+-<html lang="ko">
++<html lang="en">
+ <meta charset="utf-8">
+ <meta name="viewport" content="width=device-width,initial-scale=1">
+-<title>MTTL-W01 독립 펌웨어 화면 초안</title>
++<title>MTTL-W01 standalone firmware preview</title>
+ <style>
+   :root{font:14px/1.5 "Segoe UI Variable","Apple SD Gothic Neo","Malgun Gothic",sans-serif;color:#1e293b;background:#f5f7fb;accent-color:#2563eb;--line:#e2e8f0;--muted:#64748b;--blue:#2563eb}
+   *{box-sizing:border-box}body{margin:0}header{background:#0f172a;color:white;padding:22px max(24px,calc((100% - 1152px)/2));display:flex;justify-content:space-between;align-items:center;gap:16px}h1{font-size:21px;letter-spacing:-.6px;margin:0}h2{font-size:19px;letter-spacing:-.4px;margin:0 0 20px}
+@@ -11,103 +11,103 @@
+   section{display:none}section.active{display:block}.panel,.channel{background:white;border:1px solid var(--line);border-radius:18px}.panel{padding:26px;margin-bottom:20px}.summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-top:22px}.summary div{background:#f8fafc;border:1px solid #edf2f7;border-radius:12px;padding:16px 8px;text-align:center}.summary small{display:block;font-size:11px;margin-bottom:6px}.summary b{font-size:19px;letter-spacing:-.4px;font-variant-numeric:tabular-nums}
+   .channels{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.channel{padding:20px;min-width:0}.channel-head{display:flex;align-items:center;min-height:66px;gap:8px;border-bottom:1px solid #f1f5f9;padding-bottom:16px;margin-bottom:16px}.channel-head>h2{flex:1;min-width:0;overflow-wrap:anywhere;margin:0;font-size:19px}.edit-name{padding:4px 7px;font-size:12px;flex-shrink:0;background:transparent}.channel-lock{border-color:transparent}.channel-lock[aria-pressed=true]{background:#fff7ed;border-color:#fed7aa}.sensor{display:flex;justify-content:space-between;gap:8px;margin:12px 0;font-size:13px}.sensor b{font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.channel .sensor{flex-wrap:wrap}.switch{width:100%;margin-top:14px;background:#f1f5f9;border-color:transparent;color:#475569}.switch.is-on,.channel.on .switch{background:#10b981;color:white;border-color:transparent;}.switch.is-on:hover{background:#059669}.controls{text-align:center;margin-top:22px}.controls button{min-width:106px}.meta{display:flex;gap:10px 20px;flex-wrap:wrap}.meta b{color:#334155;font-weight:500}.time{margin-top:12px}
+   form{max-width:520px}label{display:block;margin:18px 0 7px;font-size:12px;font-weight:600}input,select{width:100%;padding:11px 12px;background:#f8fafc}input[type=checkbox]{width:auto;margin-right:8px}input[type=range]{padding:0}.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:20px}.status{min-height:22px;color:#047857;font-size:12px;margin-top:16px}.status.error{color:#b91c1c}pre{margin:0;padding:18px;border-radius:12px;background:#0f172a;color:#cbd5e1;font:12px/1.8 ui-monospace,monospace;white-space:pre-wrap;height:300px;overflow:auto}
+-  .header-tools,.device-heading,.device-title{display:flex;align-items:center;gap:10px}.device-heading{justify-content:space-between;margin-bottom:18px}.device-title{min-width:0}.device-heading h2{margin:0;overflow-wrap:anywhere}#language,#language:hover{background:transparent;color:#e2e8f0;border-color:#475569;font-size:12px}.name-editor{margin:20px 0;padding:18px;background:#f8fafc;border:1px solid var(--line);border-radius:12px}.name-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 14px}.name-grid .wide{grid-column:1/-1}.protection-slider input{flex:1;min-width:0;width:auto}.protection-slider b{min-width:80px;text-align:right;white-space:nowrap}.schedule-time{display:flex;align-items:center;width:max-content;border:1px solid var(--line);border-radius:10px;overflow:hidden}.schedule-time input,.schedule-time select{width:auto;border:0;border-radius:0;padding:10px}.schedule-time input{width:65px}
++  .header-tools,.device-heading,.device-title{display:flex;align-items:center;gap:10px}.device-heading{justify-content:space-between;margin-bottom:18px}.device-title{min-width:0}.device-heading h2{margin:0;overflow-wrap:anywhere}.name-editor{margin:20px 0;padding:18px;background:#f8fafc;border:1px solid var(--line);border-radius:12px}.name-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 14px}.name-grid .wide{grid-column:1/-1}.protection-slider input{flex:1;min-width:0;width:auto}.protection-slider b{min-width:80px;text-align:right;white-space:nowrap}.schedule-time{display:flex;align-items:center;width:max-content;border:1px solid var(--line);border-radius:10px;overflow:hidden}.schedule-time input,.schedule-time select{width:auto;border:0;border-radius:0;padding:10px}.schedule-time input{width:65px}
+   @media(max-width:800px){.channels{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){header{padding:18px}main{padding:0 14px;margin-top:18px}.panel{padding:18px}.channel{padding:14px}.summary{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.summary div{padding:12px 5px}.summary b{font-size:16px}.sensor{font-size:12px}.meta{gap:8px 12px}nav{flex-wrap:nowrap;overflow:auto;width:100%}nav button{white-space:nowrap;padding:9px 12px}}
+   [data-i18n="connection"]::after,[data-i18n="currentTime"]::after,[data-i18n="recentConnection"]::after,[data-i18n="uptime"]::after{content:":\00a0"}.channel-lock{font-size:16px;line-height:18px;padding:4px 7px}
+   #timer-form{max-width:none}#timer-editor{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}#timer-editor>p,#timer-editor>button{grid-column:1/-1}#timer-editor>.name-editor{min-width:0;margin:0;padding:16px}#timer-editor .row{gap:8px;margin-top:8px}#timer-editor .row label{flex:1;min-width:0}#timer-editor .row input{width:100%!important}#timer-editor .row button{width:100%}
+   #timer-editor>button{justify-self:center;width:auto;min-width:140px}#timer-editor .row label{text-align:center}#timer-editor .row input{text-align:right}
+   @media(max-width:900px){#timer-editor{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:480px){#timer-editor{grid-template-columns:1fr}}
+ </style>
+-<header><h1>MTTL-W01</h1><div class="header-tools"><span class="badge" data-i18n="simulation">PC 모의 화면</span><button id="language" type="button">English</button></div></header>
++<header><h1>MTTL-W01</h1><div class="header-tools"><span class="badge" data-i18n="simulation">PC simulation</span></div></header>
+ <main>
+-  <p class="note" data-i18n="note">버튼과 설정 흐름을 확인하는 화면 초안입니다. 아래 값은 가상 데이터이며 실제 멀티탭·Wi-Fi·MQTT에는 연결하지 않습니다.</p>
+-  <nav role="tablist" aria-label="메뉴" data-i18n-aria="menu">
+-    <button role="tab" aria-selected="true" aria-controls="device" id="tab-device" data-i18n="device">멀티탭</button>
+-    <button role="tab" aria-selected="false" aria-controls="wifi" id="tab-wifi" data-i18n="wifi">Wi-Fi 설정</button>
++  <p class="note" data-i18n="note">A preview of controls and setup. Values are simulated; this page does not connect to a power strip, Wi-Fi or MQTT.</p>
++  <nav role="tablist" aria-label="Menu" data-i18n-aria="menu">
++    <button role="tab" aria-selected="true" aria-controls="device" id="tab-device" data-i18n="device">Power strip</button>
++    <button role="tab" aria-selected="false" aria-controls="wifi" id="tab-wifi" data-i18n="wifi">Wi-Fi setup</button>
+     <button role="tab" aria-selected="false" aria-controls="mqtt" id="tab-mqtt" data-i18n="mqtt">HA · MQTT</button>
+-    <button role="tab" aria-selected="false" aria-controls="protection" id="tab-protection" data-i18n="protection">보호 설정</button>
+-    <button role="tab" aria-selected="false" aria-controls="scheduler" id="tab-scheduler" data-i18n="scheduler">스케줄러</button>
+-    <button role="tab" aria-selected="false" aria-controls="timer" id="tab-timer" data-i18n="timer">타이머</button>
+-    <button role="tab" aria-selected="false" aria-controls="firmware" id="tab-firmware" data-i18n="firmware">펌웨어</button>
+-    <button role="tab" aria-selected="false" aria-controls="logs" id="tab-logs" data-i18n="logs">로그</button>
++    <button role="tab" aria-selected="false" aria-controls="protection" id="tab-protection" data-i18n="protection">Protection</button>
++    <button role="tab" aria-selected="false" aria-controls="scheduler" id="tab-scheduler" data-i18n="scheduler">Scheduler</button>
++    <button role="tab" aria-selected="false" aria-controls="timer" id="tab-timer" data-i18n="timer">Timer</button>
++    <button role="tab" aria-selected="false" aria-controls="firmware" id="tab-firmware" data-i18n="firmware">Firmware</button>
++    <button role="tab" aria-selected="false" aria-controls="logs" id="tab-logs" data-i18n="logs">Logs</button>
+   </nav>
+   <section id="device" class="active" role="tabpanel" aria-labelledby="tab-device">
+     <div class="panel">
+-      <div class="device-heading"><div class="device-title"><h2 id="device-name">거실 멀티탭</h2><button id="edit-names" class="edit-name" type="button" data-i18n-aria="rename">✎</button></div></div>
+-      <div class="meta"><span>IP:&nbsp;<b id="ip">192.0.2.10</b></span><span>MAC:&nbsp;<b id="mac">02:00:00:00:00:01</b></span><span><span data-i18n="connection">연결</span><b id="online">Online · 모의</b></span><span>SSID:&nbsp;<b id="connected-ssid">SIMULATED_AP</b></span><span>RSSI:&nbsp;<b id="rssi">-43 dBm</b></span></div>
+-      <div id="name-editor" class="name-editor" hidden><h2 data-i18n="nameSettings">기기 · 채널 이름</h2><form id="name-form">
+-        <div class="name-grid"><div class="wide"><label for="device-name-input" data-i18n="deviceName">기기 이름</label><input id="device-name-input" type="text" maxlength="64" required></div>
+-        <div><label id="channel-name-label-1" for="channel-name-1">채널 1 이름</label><input id="channel-name-1" maxlength="64" required></div>
+-        <div><label id="channel-name-label-2" for="channel-name-2">채널 2 이름</label><input id="channel-name-2" maxlength="64" required></div>
+-        <div><label id="channel-name-label-3" for="channel-name-3">채널 3 이름</label><input id="channel-name-3" maxlength="64" required></div>
+-        <div><label id="channel-name-label-4" for="channel-name-4">채널 4 이름</label><input id="channel-name-4" maxlength="64" required></div></div>
+-        <p class="muted" data-i18n="nameHint">이름은 저장 버튼을 눌렀을 때 반영됩니다. 각 이름은 UTF-8 64바이트 이내입니다.</p>
+-        <div class="row"><button class="primary" data-i18n="saveNames">이름 저장</button><button id="cancel-names" type="button" data-i18n="cancel">취소</button></div>
++      <div class="device-heading"><div class="device-title"><h2 id="device-name">Living room power strip</h2><button id="edit-names" class="edit-name" type="button" data-i18n-aria="rename" aria-label="Edit names">✎</button></div></div>
++      <div class="meta"><span>IP:&nbsp;<b id="ip">192.0.2.10</b></span><span>MAC:&nbsp;<b id="mac">02:00:00:00:00:01</b></span><span><span data-i18n="connection">Connection</span><b id="online">Online · simulated</b></span><span>SSID:&nbsp;<b id="connected-ssid">SIMULATED_AP</b></span><span>RSSI:&nbsp;<b id="rssi">-43 dBm</b></span></div>
++      <div id="name-editor" class="name-editor" hidden><h2 data-i18n="nameSettings">Device & channel names</h2><form id="name-form">
++        <div class="name-grid"><div class="wide"><label for="device-name-input" data-i18n="deviceName">Device name</label><input id="device-name-input" type="text" maxlength="64" required></div>
++        <div><label id="channel-name-label-1" for="channel-name-1">Channel 1 name</label><input id="channel-name-1" maxlength="64" required></div>
++        <div><label id="channel-name-label-2" for="channel-name-2">Channel 2 name</label><input id="channel-name-2" maxlength="64" required></div>
++        <div><label id="channel-name-label-3" for="channel-name-3">Channel 3 name</label><input id="channel-name-3" maxlength="64" required></div>
++        <div><label id="channel-name-label-4" for="channel-name-4">Channel 4 name</label><input id="channel-name-4" maxlength="64" required></div></div>
++        <p class="muted" data-i18n="nameHint">Names are applied when you press Save. Each name may contain up to 64 UTF-8 bytes.</p>
++        <div class="row"><button class="primary" data-i18n="saveNames">Save names</button><button id="cancel-names" type="button" data-i18n="cancel">Cancel</button></div>
+         <div id="name-status" class="status" role="status"></div>
+       </form></div>
+-      <div class="time muted"><span data-i18n="currentTime">현재 시각</span> <span id="clock">—</span> · <span data-i18n="recentConnection">최근 연결</span> <span id="connected">—</span> · <span data-i18n="uptime">가동</span> <span id="uptime">0초</span></div>
+-      <div class="summary"><div><small data-i18n="totalPower">전체 전력</small><b id="total">0.0 W</b></div><div><small data-i18n="meter">누적 전력량</small><b>1.551 kWh</b></div><div><small data-i18n="voltage">전압</small><b>220.0 V</b></div><div><small data-i18n="totalCurrent">전체 전류</small><b id="current">0.000 A</b></div><div><small data-i18n="all">전체</small><b id="all">OFF</b></div></div>
+-      <div class="controls"><button id="all-on" data-i18n="allOn">전체 켜기</button> <button id="all-off" data-i18n="allOff">전체 끄기</button></div>
++      <div class="time muted"><span data-i18n="currentTime">Current time</span> <span id="clock">—</span> · <span data-i18n="recentConnection">Last connected</span> <span id="connected">—</span> · <span data-i18n="uptime">Uptime</span> <span id="uptime">0s</span></div>
++      <div class="summary"><div><small data-i18n="totalPower">Total Power</small><b id="total">0.0 W</b></div><div><small data-i18n="meter">Meter</small><b>1.551 kWh</b></div><div><small data-i18n="voltage">Voltage</small><b>220.0 V</b></div><div><small data-i18n="totalCurrent">Total Current</small><b id="current">0.000 A</b></div><div><small data-i18n="all">ALL</small><b id="all">OFF</b></div></div>
++      <div class="controls"><button id="all-on" data-i18n="allOn">All ON</button> <button id="all-off" data-i18n="allOff">All OFF</button></div>
+     </div>
+     <div class="channels" id="channels"></div>
+-    <div class="row"><button id="hold" data-i18n="hold">메인 버튼 10초 길게 누르기 모의</button><span class="muted" data-i18n="holdHint">Wi-Fi 설정 모드 흐름 확인</span></div>
++    <div class="row"><button id="hold" data-i18n="hold">Simulate holding the main button for 10 seconds</button><span class="muted" data-i18n="holdHint">Open Wi-Fi setup mode</span></div>
+   </section>
+   <section id="wifi" role="tabpanel" aria-labelledby="tab-wifi">
+-    <div class="panel"><h2 data-i18n="wifi">Wi-Fi 설정</h2><p class="muted" data-i18n="wifiHint">설정 AP 주소: 192.168.4.1 · Wi-Fi 목록을 검색하고 연결할 네트워크를 선택합니다.</p>
+-      <form id="wifi-form"><button type="button" id="scan" data-i18n="scan">Wi-Fi 검색 모의</button><label for="ssid" data-i18n="network">네트워크</label><select id="ssid" required><option value="" data-i18n="scanFirst">검색 후 선택</option></select><label for="wifi-password" data-i18n="password">암호</label><input id="wifi-password" type="password" maxlength="64" autocomplete="off"><div class="row"><button class="primary" data-i18n="connect">연결 모의</button></div><div id="wifi-status" class="status" role="status"></div></form>
++    <div class="panel"><h2 data-i18n="wifi">Wi-Fi setup</h2><p class="muted" data-i18n="wifiHint">Setup AP address: 192.168.4.1 · Scan for Wi-Fi networks, then select one to connect.</p>
++      <form id="wifi-form"><button type="button" id="scan" data-i18n="scan">Simulate Wi-Fi scan</button><label for="ssid" data-i18n="network">Wi-Fi SSID</label><select id="ssid" required><option value="" data-i18n="scanFirst">Scan to select</option></select><label for="wifi-password" data-i18n="password">Password</label><input id="wifi-password" type="password" maxlength="64" autocomplete="off"><div class="row"><button class="primary" data-i18n="connect">Simulate connection</button></div><div id="wifi-status" class="status" role="status"></div></form>
+     </div>
+   </section>
+   <section id="mqtt" role="tabpanel" aria-labelledby="tab-mqtt">
+     <div class="panel"><h2 data-i18n="mqttTitle">Home Assistant · MQTT</h2><form id="mqtt-form">
+       <label for="broker" data-i18n="broker">Broker</label><input id="broker" placeholder="192.168.0.4" required maxlength="253">
+       <label for="port" data-i18n="port">Port</label><input id="port" type="number" min="1" max="65535" value="1883" required>
+-      <label for="user" data-i18n="username">사용자</label><input id="user" maxlength="64" autocomplete="off">
+-      <label for="mqtt-password" data-i18n="password">암호</label><input id="mqtt-password" type="password" maxlength="64" autocomplete="off">
+-      <label><input id="enabled" type="checkbox"><span data-i18n="mqttEnable">MQTT 연동 활성화</span></label>
+-      <div class="row"><button class="primary" data-i18n="saveMock">저장 모의</button></div><div id="mqtt-status" class="status" role="status">Disabled</div>
++      <label for="user" data-i18n="username">Username</label><input id="user" maxlength="64" autocomplete="off">
++      <label for="mqtt-password" data-i18n="password">Password</label><input id="mqtt-password" type="password" maxlength="64" autocomplete="off">
++      <label><input id="enabled" type="checkbox"><span data-i18n="mqttEnable">Enable MQTT integration</span></label>
++      <div class="row"><button class="primary" data-i18n="saveMock">Simulate saving</button></div><div id="mqtt-status" class="status" role="status">Disabled</div>
+     </form></div>
+   </section>
+   <section id="protection" role="tabpanel" aria-labelledby="tab-protection">
+-    <div class="panel"><h2 data-i18n="protection">보호 설정</h2><p class="muted" data-i18n="protectionHint">전류 한계는 전체 전류와 각 콘센트에 함께 적용됩니다. 한 콘센트가 한계를 넘으면 그 콘센트만 차단되고, 전체 전력 초과는 스트립 전체를 차단합니다. 온도 초과는 해당 콘센트만 차단합니다. 전류·전력은 2회 연속 초과 시 동작하며 측정 주기는 약 10초입니다.</p>
++    <div class="panel"><h2 data-i18n="protection">Protection</h2><p class="muted" data-i18n="protectionHint">The current limit applies to the total and to every outlet on its own: an outlet over the limit is cut alone, while total power cuts the whole strip. A temperature trip cuts the blamed outlet. Current and power need two consecutive rounds; each channel is sampled about every 10 seconds.</p>
+     <form id="protection-form">
+-      <label><input id="protect-temperature-enabled" type="checkbox" checked><span data-i18n="protectTemperature">고온 차단 · 채널 중 최고 온도</span></label>
++      <label><input id="protect-temperature-enabled" type="checkbox" checked><span data-i18n="protectTemperature">Temperature · highest channel</span></label>
+       <div class="sensor protection-slider"><input id="protect-temperature" type="range" min="50" max="90" step="1" value="90"><b id="protect-temperature-value">90 °C</b></div>
+-      <label><input id="protect-current-enabled" type="checkbox" checked><span data-i18n="protectCurrent">과전류 차단 · 전체 전류 및 콘센트별 전류</span></label>
++      <label><input id="protect-current-enabled" type="checkbox" checked><span data-i18n="protectCurrent">Overcurrent · total current and every outlet</span></label>
+       <div class="sensor protection-slider"><input id="protect-current" type="range" min="1" max="16" step="0.1" value="16"><b id="protect-current-value">16.0 A</b></div>
+-      <label><input id="protect-power-enabled" type="checkbox" checked><span data-i18n="protectPower">고전력 차단 · 전체 전력</span></label>
++      <label><input id="protect-power-enabled" type="checkbox" checked><span data-i18n="protectPower">Power · total power</span></label>
+       <div class="sensor protection-slider"><input id="protect-power" type="range" min="100" max="3000" step="1" value="3000"><b id="protect-power-value">3000 W</b></div>
+-      <div class="row"><button id="protection-apply" class="primary" data-i18n="applyProtection" disabled>적용</button></div><div id="protection-save-status" class="status" role="status"></div>
++      <div class="row"><button id="protection-apply" class="primary" data-i18n="applyProtection" disabled>Apply</button></div><div id="protection-save-status" class="status" role="status"></div>
+     </form><div id="protection-state" class="status" role="status"></div></div>
+   </section>
+   <section id="scheduler" role="tabpanel" aria-labelledby="tab-scheduler">
+-    <div class="panel"><h2 data-i18n="scheduler">스케줄러</h2><form id="schedule-form"><div id="schedule-editor"></div><div id="schedule-status" class="status" role="status"></div></form></div>
++    <div class="panel"><h2 data-i18n="scheduler">Scheduler</h2><form id="schedule-form"><div id="schedule-editor"></div><div id="schedule-status" class="status" role="status"></div></form></div>
+   </section>
+-  <section id="timer" role="tabpanel" aria-labelledby="tab-timer"><div class="panel"><h2 data-i18n="timer">타이머</h2><form id="timer-form"><div id="timer-editor"></div><div id="timer-status" class="status" role="status"></div></form></div></section>
++  <section id="timer" role="tabpanel" aria-labelledby="tab-timer"><div class="panel"><h2 data-i18n="timer">Timer</h2><form id="timer-form"><div id="timer-editor"></div><div id="timer-status" class="status" role="status"></div></form></div></section>
+   <section id="firmware" role="tabpanel" aria-labelledby="tab-firmware">
+-    <div class="panel"><h2 data-i18n="firmware">펌웨어</h2>
+-      <div class="sensor"><span data-i18n="currentVersion">현재 버전</span><b id="current-firmware-version">2.0.17</b></div>
+-      <p class="muted" data-i18n="firmwareHint">현재: 독립 펌웨어 화면 초안 · 선택한 파일의 형식과 체크섬을 PC에서 검사합니다.</p>
++    <div class="panel"><h2 data-i18n="firmware">Firmware</h2>
++      <div class="sensor"><span data-i18n="currentVersion">Current version</span><b id="current-firmware-version">2.0.17</b></div>
++      <p class="muted" data-i18n="firmwareHint">Current: standalone firmware preview · Inspect the selected file format and checksum on this PC.</p>
+       <form id="firmware-form">
+-        <label for="firmware-picker" data-i18n="firmwareFile">펌웨어 파일 (.fwr / Image2 .bin)</label><input id="firmware-file" type="file" accept=".fwr,.bin" hidden>
+-        <div class="file-picker"><button id="firmware-picker" type="button" data-i18n="chooseFirmwareFile">파일 선택</button><span id="firmware-selected" class="muted" aria-live="polite">선택된 파일 없음</span></div>
+-        <label for="firmware-expected" data-i18n="expectedHash">예상 SHA-256 (선택)</label><input id="firmware-expected" data-i18n-placeholder="hashPlaceholder" placeholder="배포자가 제공한 64자리 SHA-256" maxlength="64" autocomplete="off">
+-        <div class="row"><button id="firmware-verify" type="button" data-i18n="verifyFile">파일 검사</button><button id="firmware-update" class="primary" data-i18n="updateMock" disabled>업데이트 모의 실행</button></div>
++        <label for="firmware-picker" data-i18n="firmwareFile">Firmware file (.fwr / Image2 .bin)</label><input id="firmware-file" type="file" accept=".fwr,.bin" hidden>
++        <div class="file-picker"><button id="firmware-picker" type="button" data-i18n="chooseFirmwareFile">Choose file</button><span id="firmware-selected" class="muted" aria-live="polite">No file selected</span></div>
++        <label for="firmware-expected" data-i18n="expectedHash">Expected SHA-256 (optional)</label><input id="firmware-expected" data-i18n-placeholder="64-digit SHA-256 provided by the publisher" placeholder="64-digit SHA-256 provided by the publisher" maxlength="64" autocomplete="off">
++        <div class="row"><button id="firmware-verify" type="button" data-i18n="verifyFile">Inspect file</button><button id="firmware-update" class="primary" data-i18n="updateMock" disabled>Simulate update</button></div>
+       </form>
+       <div id="firmware-info" class="firmware-info" hidden>
+-        <div class="sensor"><span data-i18n="file">파일</span><b id="firmware-name">—</b></div>
+-        <div class="sensor"><span data-i18n="size">크기</span><b id="firmware-size">—</b></div>
+-        <div class="sensor"><span data-i18n="format">형식</span><b id="firmware-format">—</b></div>
+-        <div class="sensor"><span data-i18n="versionCandidates">본문의 버전 후보</span><b id="firmware-version">—</b></div>
+-        <div class="sensor"><span data-i18n="checksum">체크섬</span><b id="firmware-checksum">—</b></div>
++        <div class="sensor"><span data-i18n="file">File</span><b id="firmware-name">—</b></div>
++        <div class="sensor"><span data-i18n="size">Size</span><b id="firmware-size">—</b></div>
++        <div class="sensor"><span data-i18n="format">Format</span><b id="firmware-format">—</b></div>
++        <div class="sensor"><span data-i18n="versionCandidates">Version candidates in the image</span><b id="firmware-version">—</b></div>
++        <div class="sensor"><span data-i18n="checksum">Checksum</span><b id="firmware-checksum">—</b></div>
+         <div class="sensor"><span>SHA-256</span><b id="firmware-hash" class="hash">—</b></div>
+       </div>
+-      <progress id="firmware-progress" value="0" max="100" hidden aria-label="모의 업데이트 진행률" data-i18n-aria="progressLabel"></progress>
+-      <div id="firmware-status" class="status" role="status" aria-live="polite">파일을 선택하고 검사해 주세요.</div>
+-      <ol class="firmware-steps"><li data-i18n="firmwareStep1">파일 형식·크기·진입점·체크섬 검사</li><li data-i18n="firmwareStep2">업로드 및 재검사 진행 모의</li><li data-i18n="firmwareStep3">재부팅·재연결 진행 모의</li></ol>
+-      <p class="muted" data-i18n="firmwareLimit">형식 검사 통과는 실제 부팅 보증이 아닙니다. 이 화면은 파일을 서버나 기기에 전송하지 않으며, 실제 기록·재부팅은 연결되지 않았습니다.</p>
++      <progress id="firmware-progress" value="0" max="100" hidden aria-label="Simulated update progress" data-i18n-aria="progressLabel"></progress>
++      <div id="firmware-status" class="status" role="status" aria-live="polite">Choose a file, then inspect it.</div>
++      <ol class="firmware-steps"><li data-i18n="firmwareStep1">Inspect format, size, entry point and checksum</li><li data-i18n="firmwareStep2">Simulate upload and verification</li><li data-i18n="firmwareStep3">Simulate restart and reconnection</li></ol>
++      <p class="muted" data-i18n="firmwareLimit">Passing inspection does not guarantee boot compatibility. This page does not transmit the file to a server or device; flash writing and restart are not connected.</p>
+     </div>
+   </section>
+-  <section id="logs" role="tabpanel" aria-labelledby="tab-logs"><div class="panel"><h2 data-i18n="eventLog">이벤트 로그</h2><label><input id="autoscroll" type="checkbox" checked><span data-i18n="autoscroll">자동 스크롤</span></label><pre id="log" aria-label="이벤트 로그" data-i18n-aria="eventLog"></pre></div></section>
++  <section id="logs" role="tabpanel" aria-labelledby="tab-logs"><div class="panel"><h2 data-i18n="eventLog">Event log</h2><label><input id="autoscroll" type="checkbox" checked><span data-i18n="autoscroll">Auto-scroll</span></label><pre id="log" aria-label="Event log" data-i18n-aria="eventLog"></pre></div></section>
+ </main>
+ <script src="i18n.js"></script>
+ <script src="scheduler.js"></script>
+diff --git a/source/standalone/ui/live.js b/source/standalone/ui/live.js
+index 2b9e546..47fdaf6 100644
+--- a/source/standalone/ui/live.js
++++ b/source/standalone/ui/live.js
+@@ -2,7 +2,7 @@
+ (function(){
+   'use strict';
+   const el=id=>document.getElementById(id),key='mttl.preview.display.v1';
+-  let language='ko',preferences={},snapshot=null,deviceSnapshot=null,configuration=null,composing=false,wifiMessage=null,controlBusy=false;
++  let preferences={},snapshot=null,deviceSnapshot=null,configuration=null,composing=false,wifiMessage=null,controlBusy=false;
+   let events=null,eventConnected=false;
+   let relaySnapshot=null;
+   function applyRelay(){if(!relaySnapshot||!deviceSnapshot)return;deviceSnapshot.channels.forEach((c,i)=>{c.on=relaySnapshot.known&(1<<i)?!!(relaySnapshot.on&(1<<i)):null;});if(relaySnapshot.fault)deviceSnapshot.hardware_ready=false;}
+@@ -27,23 +27,23 @@
+       const fresh=await request('/api/config');
+       const desired=(fresh.button_lock||0)^(1<<i);
+       await storeConfiguration({...fresh,button_lock:desired});
+-      logEvent('잠금 설정을 저장했습니다. 잠긴 콘센트는 버튼·웹·HA·타이머·예약 어디서도 바뀌지 않습니다.','Lock saved. A locked outlet is not switched by the buttons, the web UI, HA, its timer or the schedules.');
+-    }catch(_){logEvent('잠금 설정 저장 여부를 확인하지 못했습니다. 기기 상태를 다시 확인하세요.','Lock save could not be confirmed; check the device state.');}
++      logEvent('Lock saved. A locked outlet is not switched by the buttons, the web UI, HA, its timer or the schedules.');
++    }catch(_){logEvent('Lock save could not be confirmed; check the device state.');}
+     finally{lockPending.delete(i);release();render();}
+   }
+   // Bounded browser-session diagnostics, never configuration or credentials.
+   const logRows=[];let lastObserved=null;
+-  function renderLog(){const box=el('log');box.textContent=logRows.length?logRows.map(row=>'['+row.at+'] '+(language==='en'?row.en:row.ko)).join('\n'):(language==='en'?'Browser-session events only; not stored in device.':'브라우저 세션 로그 · 기기에 저장되지 않습니다.');if(el('autoscroll').checked)box.scrollTop=box.scrollHeight;}
+-  function logEvent(ko,en){logRows.push({at:new Date().toLocaleTimeString(),ko,en});if(logRows.length>200)logRows.shift();renderLog();}
++  function renderLog(){const box=el('log');box.textContent=logRows.length?logRows.map(row=>'['+row.at+'] '+row.en).join('\n'):'Browser-session events only; not stored in device.';if(el('autoscroll').checked)box.scrollTop=box.scrollHeight;}
++  function logEvent(en){logRows.push({at:new Date().toLocaleTimeString(),en});if(logRows.length>200)logRows.shift();renderLog();}
+   function observe(){
+     const current={available:!!snapshot,network:snapshot?.state,mqtt:deviceSnapshot?.mqtt_state,uptime:snapshot?.uptime_ms,on:deviceSnapshot?.channels?.map(c=>c.on)};
+     if(lastObserved){
+-      if(current.available!==lastObserved.available)logEvent(current.available?'기기 API 연결 복구':'기기 API 응답 없음',current.available?'Device API recovered':'Device API unavailable');
+-      if(current.available&&lastObserved.available&&current.uptime<lastObserved.uptime)logEvent('기기 재부팅 감지','Device reboot observed');
+-      if(Number.isInteger(current.network)&&current.network!==lastObserved.network)logEvent('Wi-Fi 상태: '+t('netState'+current.network),'Wi-Fi state: '+MttlI18n.text('en','netState'+current.network));
+-      if(Number.isInteger(current.mqtt)&&current.mqtt!==lastObserved.mqtt)logEvent('MQTT 상태 코드: '+current.mqtt,'MQTT state code: '+current.mqtt);
+-      if(current.on&&lastObserved.on)current.on.forEach((on,i)=>{if(typeof on==='boolean'&&on!==lastObserved.on[i])logEvent('채널 '+(i+1)+' 확인 상태: '+(on?'ON':'OFF'),'Channel '+(i+1)+' confirmed state: '+(on?'ON':'OFF'));});
+-    }else if(current.available)logEvent('기기 상태 관찰 시작','Device state observation started');
++      if(current.available!==lastObserved.available)logEvent(current.available?'Device API recovered':'Device API unavailable');
++      if(current.available&&lastObserved.available&&current.uptime<lastObserved.uptime)logEvent('Device reboot observed');
++      if(Number.isInteger(current.network)&&current.network!==lastObserved.network)logEvent('Wi-Fi state: '+MttlI18n.text('en','netState'+current.network));
++      if(Number.isInteger(current.mqtt)&&current.mqtt!==lastObserved.mqtt)logEvent('MQTT state code: '+current.mqtt);
++      if(current.on&&lastObserved.on)current.on.forEach((on,i)=>{if(typeof on==='boolean'&&on!==lastObserved.on[i])logEvent('Channel '+(i+1)+' confirmed state: '+(on?'ON':'OFF'));});
++    }else if(current.available)logEvent('Device state observation started');
+     lastObserved=current;
+   }
+   function startEvents(){
+@@ -51,20 +51,20 @@
+     if(snapshot?.state!==5){if(events)events.close();events=null;eventConnected=false;relaySnapshot=null;return;}
+     if(events||typeof EventSource==='undefined')return;
+     events=new EventSource('/api/events');
+-    events.onopen=()=>{eventConnected=true;logEvent('실시간 상태 연결됨','Live state stream connected');};events.onerror=()=>{if(eventConnected)logEvent('실시간 연결 끊김 · 재연결 대기','Live stream interrupted; waiting for reconnect');eventConnected=false;relaySnapshot=null;};
++    events.onopen=()=>{eventConnected=true;logEvent('Live state stream connected');};events.onerror=()=>{if(eventConnected)logEvent('Live stream interrupted; waiting for reconnect');eventConnected=false;relaySnapshot=null;};
+     events.addEventListener('relay',event=>{try{const d=JSON.parse(event.data);if(![d.known,d.on,d.fault].every(Number.isInteger)||d.known<0||d.known>15||d.on<0||d.on>15||d.fault<0)throw Error('Relay');relaySnapshot=d;applyRelay();render();}catch(_){eventConnected=false;}});
+     events.addEventListener('device',event=>{try{const d=JSON.parse(event.data);if(!Array.isArray(d.channels)||d.channels.length!==4)throw Error('Device');deviceSnapshot=d;applyRelay();render();}catch(_){eventConnected=false;}});
+   }
+-  try{preferences=JSON.parse(localStorage.getItem(key)||'{}');if(preferences.language==='en')language='en';}catch(_){preferences={};}
+-  const t=(name,args={})=>MttlI18n.text(language,name,args);
+-  function save(){preferences.language=language;try{localStorage.setItem(key,JSON.stringify(preferences));}catch(_){}}
++  try{preferences=JSON.parse(localStorage.getItem(key)||'{}');}catch(_){preferences={};}
++  const t=(name,args={})=>MttlI18n.text('en',name,args);
++  function save(){try{localStorage.setItem(key,JSON.stringify(preferences));}catch(_){}}
+   function goodName(v){return typeof v==='string'&&v.trim()&&new TextEncoder().encode(v.trim()).length<=64&&!/[\x00-\x1f\x7f]/.test(v);}
+   function name(i){const actual=i<0?deviceSnapshot?.name:deviceSnapshot?.channels?.[i]?.name;const value=actual||(i<0?preferences.deviceName:preferences.channelNames?.[i]);return goodName(value)?value:t(i<0?'deviceDefault':i===0?'channelOneDefault':'channelDefault',{number:i+1});}
+   function reading(value,scale,unit){return Number.isInteger(value)?(value/scale).toFixed(scale===10?1:3)+' '+unit:'— '+unit;}
+   function settingsBody(c,password=''){
+     const port=Number(c.port);if(!Number.isInteger(port)||port<1||port>65535)throw Error('Port');
+     const fields=[c.device,...c.channels,'','',c.broker,c.user,password,c.topic];if(fields.length!==11)throw Error('Channels');
+-    const bytes=[8,c.language,c.enabled?1:0,port&255,port>>>8];const limits=[64,64,64,64,64,32,64,253,64,64,64];
++    const bytes=[8,1,c.enabled?1:0,port&255,port>>>8];const limits=[64,64,64,64,64,32,64,253,64,64,64];
+     fields.forEach((field,i)=>{const data=new TextEncoder().encode(field||'');if(data.length>limits[i])throw Error('Length');bytes.push(data.length,...data);});
+     const p=c.protection||{enabled:7,temperature:90,current:16000,power:3000};
+     if(!Number.isInteger(p.enabled)||p.enabled<0||p.enabled>15||!Number.isInteger(p.temperature)||p.temperature<50||p.temperature>90||!Number.isInteger(p.current)||p.current<1000||p.current>16000||!Number.isInteger(p.power)||p.power<100||p.power>3000)throw Error('Protection');
+@@ -76,7 +76,7 @@
+     for(let i=0;i<4;i++)bytes.push(p.current&255,p.current>>>8);
+     return Uint8Array.from(bytes);
+   }
+-async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(snapshot?.state))throw Error('Not ready');const body=settingsBody(c,password);try{try{await request('/api/config',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-MTTL-Keep-Password':keep?'1':'0'},body});}catch(_){/* A lost POST response does not prove the write failed. Never repost. */}for(let n=0;n<12;n++){await new Promise(resolve=>setTimeout(resolve,250));let saved;try{saved=await request('/api/config');}catch(_){continue;}if(saved.persistent&&(saved.button_lock||0)===(c.button_lock||0)&&saved.device===c.device&&JSON.stringify(saved.channels)===JSON.stringify(c.channels)&&saved.language===c.language&&(!c.timer_minutes||JSON.stringify(saved.timer_minutes)===JSON.stringify(c.timer_minutes))&&saved.broker===c.broker&&saved.port===c.port&&saved.user===c.user&&saved.enabled===c.enabled&&(!c.schedule_hex||saved.schedule_hex===c.schedule_hex)&&(!c.protection||['enabled','temperature','current','power'].every(k=>saved.protection?.[k]===c.protection[k]))){configuration=saved;return true;}}throw Error('Flash save not confirmed');}finally{body.fill(0);}}
++async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(snapshot?.state))throw Error('Not ready');const body=settingsBody(c,password);try{try{await request('/api/config',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-MTTL-Keep-Password':keep?'1':'0'},body});}catch(_){/* A lost POST response does not prove the write failed. Never repost. */}for(let n=0;n<12;n++){await new Promise(resolve=>setTimeout(resolve,250));let saved;try{saved=await request('/api/config');}catch(_){continue;}if(saved.persistent&&(saved.button_lock||0)===(c.button_lock||0)&&saved.device===c.device&&JSON.stringify(saved.channels)===JSON.stringify(c.channels)&&saved.language===1&&(!c.timer_minutes||JSON.stringify(saved.timer_minutes)===JSON.stringify(c.timer_minutes))&&saved.broker===c.broker&&saved.port===c.port&&saved.user===c.user&&saved.enabled===c.enabled&&(!c.schedule_hex||saved.schedule_hex===c.schedule_hex)&&(!c.protection||['enabled','temperature','current','power'].every(k=>saved.protection?.[k]===c.protection[k]))){configuration=saved;return true;}}throw Error('Flash save not confirmed');}finally{body.fill(0);}}
+   function loadProtection(){const p=configuration?.protection||{},e=Number.isInteger(p.enabled)?p.enabled:7;
+     ['temperature','current','power'].forEach((k,i)=>{const v=Number.isInteger(p[k])?p[k]:{temperature:90,current:16000,power:3000}[k];el('protect-'+k).value=String(k==='current'?v/1000:v);el('protect-'+k+'-enabled').checked=!!(e&(1<<i));});
+     protectionValues();}
+@@ -94,7 +94,7 @@ async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(sn
+     timerEditor.ready();
+     observe();
+     el('protection-apply').disabled=!configuration||![2,5].includes(snapshot?.state)||protectionSaving;
+-    {const p=deviceSnapshot?.protection,names=language==='en'?['Temperature','Current','Power']:['온도','전류','전력'];const items=bits=>names.filter((_,i)=>bits&(1<<i)).join(', ');const where=bits=>{const list=[];for(let i=0;i<4;i++)if(bits&(1<<i))list.push(name(i));return list.length?' · '+list.join(', '):'';};el('protection-state').textContent=p?((language==='en'?'Last trip: ':'최근 차단: ')+(p.reason?items(p.reason)+where(p.channel_mask):(language==='en'?'None':'없음'))+' · '+(language==='en'?'Sensor errors: ':'센서 오류: ')+(p.error?items(p.error):(language==='en'?'None':'없음'))):t('apiUnavailable');}
++    {const p=deviceSnapshot?.protection,names=['Temperature','Current','Power'];const items=bits=>names.filter((_,i)=>bits&(1<<i)).join(', ');const where=bits=>{const list=[];for(let i=0;i<4;i++)if(bits&(1<<i))list.push(name(i));return list.length?' · '+list.join(', '):'';};el('protection-state').textContent=p?('Last trip: '+(p.reason?items(p.reason)+where(p.channel_mask):'None')+' · '+'Sensor errors: '+(p.error?items(p.error):'None')):t('apiUnavailable');}
+     ['all-on','all-off'].forEach(id=>el(id).disabled=controlBusy||!deviceSnapshot?.hardware_ready||!snapshot?.hardware_ready||snapshot?.state!==5);
+     el('device-name').textContent=name(-1);
+     for(let i=0;i<4;i++){
+@@ -114,17 +114,17 @@ async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(sn
+       channelNodes[i]={title,pencil,button,sensors,lock,timer,timerLabel};
+       }
+       const node=channelNodes[i];node.title.textContent=name(i);node.pencil.setAttribute('aria-label',t('editChannel',{number:i+1}));
+-      const locked=!!((configuration?.button_lock||0)&(1<<i));node.lock.textContent=locked?'🔒':'🔓';node.lock.title=language==='en'?(locked?'Locked: this outlet ignores the buttons, the web UI, Home Assistant, its timer and the schedules':'Unlocked: every control can switch this outlet'):(locked?'잠김: 버튼·웹·HA·타이머·예약 모두 차단':'잠금 해제: 모든 제어 허용');node.lock.setAttribute('aria-label',node.lock.title);node.lock.setAttribute('aria-pressed',String(locked));node.lock.disabled=lockPending.has(i)||!configuration||![2,5].includes(snapshot?.state);
++      const locked=!!((configuration?.button_lock||0)&(1<<i));node.lock.textContent=locked?'🔒':'🔓';node.lock.title=locked?'Locked: this outlet ignores the buttons, the web UI, Home Assistant, its timer and the schedules':'Unlocked: every control can switch this outlet';node.lock.setAttribute('aria-label',node.lock.title);node.lock.setAttribute('aria-pressed',String(locked));node.lock.disabled=lockPending.has(i)||!configuration||![2,5].includes(snapshot?.state);
+       for(const sensor of node.sensors){sensor.text.textContent=t(sensor.label);const value=reading(deviceSnapshot?.channels?.[i]?.[sensor.field],sensor.scale,sensor.unit);if(sensor.value.textContent!==value)sensor.value.textContent=value;}
+       node.button.disabled=pendingChannels.has(i)||pendingChannels.has(4)||locked||!deviceSnapshot?.hardware_ready||!snapshot?.hardware_ready||snapshot?.state!==5;
+-      const on=optimistic.has(i)?optimistic.get(i):deviceSnapshot?.channels?.[i]?.on,value=on===true?'ON':on===false?'OFF':(language==='en'?'Turn on':'켜기');if(node.button.textContent!==value)node.button.textContent=value;
++      const on=optimistic.has(i)?optimistic.get(i):deviceSnapshot?.channels?.[i]?.on,value=on===true?'ON':on===false?'OFF':'Turn on';if(node.button.textContent!==value)node.button.textContent=value;
+       const style=on===true?'switch is-on':'switch';if(node.button.className!==style)node.button.className=style;
+     }
+     drawTimers();
+     const states=Array.from({length:4},(_,i)=>optimistic.has(i)?optimistic.get(i):deviceSnapshot?.channels?.[i]?.on);
+     const all=snapshot?.state===5&&states.every(on=>typeof on==='boolean')?(states.every(Boolean)?'ON':states.some(Boolean)?'PARTIAL':'OFF'):'—';
+     const values=[reading(deviceSnapshot?.power_mw,1000,'W'),reading(deviceSnapshot?.meter_wh,1000,'kWh'),reading(deviceSnapshot?.voltage_dv,10,'V'),reading(deviceSnapshot?.current_ma,1000,'A'),all];document.querySelectorAll('.summary b').forEach((node,i)=>node.textContent=values[i]);
+-    const date=value=>Number.isSafeInteger(value)&&value>0?new Date(value).toLocaleString(language==='ko'?'ko-KR':'en-US'):'—';
++    const date=value=>Number.isSafeInteger(value)&&value>0?new Date(value).toLocaleString('en-US'):'—';
+     el('mac').textContent=/^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(snapshot?.mac||'')?snapshot.mac:'—';el('clock').textContent=date(snapshot?.unix_ms);el('connected').textContent=date(snapshot?.connected_unix_ms);
+     el('online').textContent=snapshot?t('netState'+snapshot.state):t('apiUnavailable');
+     const ip=snapshot?.ip;el('ip').textContent=Number.isInteger(ip)&&ip>0?[ip>>>24,(ip>>>16)&255,(ip>>>8)&255,ip&255].join('.'):'—';
+@@ -137,21 +137,20 @@ async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(sn
+   function translate(){
+     scheduleEditor.translate();
+     timerEditor.translate();
+-    document.documentElement.lang=language;el('language').textContent=language==='ko'?'English':'Korean';
++    document.documentElement.lang='en';
+     document.title='MTTL-W01';for(let i=1;i<=4;i++)el('channel-name-label-'+i).textContent=t('channelName',{number:i});
+     for(const [attr,target] of [['data-i18n',null],['data-i18n-placeholder','placeholder'],['data-i18n-aria','aria-label']])document.querySelectorAll('['+attr+']').forEach(n=>target?n.setAttribute(target,t(n.getAttribute(attr))):n.textContent=t(n.getAttribute(attr)));
+     el('scan').textContent=t('realScan');document.querySelector('#wifi-form button.primary').textContent=t('realConnect');
+     el('current-firmware-version').textContent='2.0.17';el('firmware-status').textContent=t('integrationPending');el('mqtt-status').textContent=t('integrationPending');el('firmware-selected').textContent=t('noSelectedFile');
+-    document.querySelector('#mqtt-form button.primary').textContent=language==='en'?'Save to device':'기기에 저장';
++    document.querySelector('#mqtt-form button.primary').textContent='Save to device';
+     renderLog();render();
+   }
+-  el('language').onclick=()=>{language=language==='ko'?'en':'ko';save();translate();};
+   let initialTabPending=true;
+   function selectTab(id){document.querySelectorAll('section').forEach(s=>s.classList.toggle('active',s.id===id));document.querySelectorAll('[role=tab]').forEach(b=>b.setAttribute('aria-selected',String(b.getAttribute('aria-controls')===id)));}
+   document.querySelectorAll('[role=tab]').forEach(button=>button.onclick=()=>{initialTabPending=false;selectTab(button.getAttribute('aria-controls'));});
+   el('edit-names').onclick=()=>edit();el('cancel-names').onclick=()=>{el('name-editor').hidden=true;};
+   el('name-form').oncompositionstart=()=>{composing=true;};el('name-form').oncompositionend=()=>{composing=false;};
+-  el('name-form').onsubmit=async event=>{event.preventDefault();if(composing)return;const device=el('device-name-input').value,channels=Array.from({length:4},(_,i)=>el('channel-name-'+(i+1)).value);if(![device,...channels].every(goodName)){el('name-status').textContent=t('nameInvalid');return;}if(configuration){try{await storeConfiguration({...configuration,device:device.trim(),channels:channels.map(x=>x.trim()),language:language==='en'?1:0});el('name-status').textContent=language==='en'?'Saved in device flash':'기기 플래시에 저장했습니다.';}catch(_){el('name-status').textContent=language==='en'?'Device save failed':'기기에 저장하지 못했습니다.';return;}}else el('name-status').textContent=t('browserNames');preferences.deviceName=device.trim();preferences.channelNames=channels.map(x=>x.trim());save();render();};
++  el('name-form').onsubmit=async event=>{event.preventDefault();if(composing)return;const device=el('device-name-input').value,channels=Array.from({length:4},(_,i)=>el('channel-name-'+(i+1)).value);if(![device,...channels].every(goodName)){el('name-status').textContent=t('nameInvalid');return;}if(configuration){try{await storeConfiguration({...configuration,device:device.trim(),channels:channels.map(x=>x.trim()),language:1});el('name-status').textContent='Saved in device flash';}catch(_){el('name-status').textContent='Device save failed';return;}}else el('name-status').textContent=t('browserNames');preferences.deviceName=device.trim();preferences.channelNames=channels.map(x=>x.trim());save();render();};
+   ['all-on','all-off','firmware-picker','firmware-verify','firmware-update'].forEach(id=>el(id).disabled=true);
+   async function control(channel,on){
+     if(pendingChannels.has(channel)||pendingChannels.has(4)||(channel===4&&pendingChannels.size))return;
+@@ -169,23 +168,23 @@ async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(sn
+         await new Promise(resolve=>setTimeout(resolve,eventConnected?100:200));
+       }
+       throw Error('Command not confirmed');
+-    }catch(_){try{const actual=await request('/api/device');if(Array.isArray(actual.channels)&&actual.channels.length===4)deviceSnapshot=actual;}catch(_){}logEvent('제어 실패 · 마지막 확인 상태 표시','Control failed; showing last confirmed state');}finally{for(let i=0;i<4;i++)if(channel===4||i===channel)optimistic.delete(i);pendingChannels.delete(channel);controlBusy=pendingChannels.size>0;release();render();}
++    }catch(_){try{const actual=await request('/api/device');if(Array.isArray(actual.channels)&&actual.channels.length===4)deviceSnapshot=actual;}catch(_){}logEvent('Control failed; showing last confirmed state');}finally{for(let i=0;i<4;i++)if(channel===4||i===channel)optimistic.delete(i);pendingChannels.delete(channel);controlBusy=pendingChannels.size>0;release();render();}
+   }
+   el('all-on').onclick=()=>control(4,1);el('all-off').onclick=()=>control(4,0);
+   let protectionSaving=false;
+-  const scheduleEditor=MttlSchedule.mount({language:()=>language,available:()=>!!configuration&&[2,5].includes(snapshot?.state),timers:()=>configuration?.timer_minutes||[0,0,0,0],save:async hex=>{const fresh=await request('/api/config');MttlTimer.valid(fresh.timer_minutes||[0,0,0,0],MttlSchedule.decode(hex));await storeConfiguration({...fresh,schedule_hex:hex});timerEditor.load(configuration.timer_minutes);}});
+-const timerEditor=MttlTimer.mount({language:()=>language,available:()=>!!configuration&&[2,5].includes(snapshot?.state),locked:()=>configuration?.button_lock||0,schedule:()=>MttlSchedule.decode(configuration?.schedule_hex||MttlSchedule.encode(MttlSchedule.defaults())),save:async minutes=>{const fresh=await request('/api/config');MttlTimer.valid(minutes,MttlSchedule.decode(fresh.schedule_hex||MttlSchedule.encode(MttlSchedule.defaults())));await storeConfiguration({...fresh,timer_minutes:minutes});scheduleEditor.translate();drawTimers();}});
++  const scheduleEditor=MttlSchedule.mount({available:()=>!!configuration&&[2,5].includes(snapshot?.state),timers:()=>configuration?.timer_minutes||[0,0,0,0],save:async hex=>{const fresh=await request('/api/config');MttlTimer.valid(fresh.timer_minutes||[0,0,0,0],MttlSchedule.decode(hex));await storeConfiguration({...fresh,schedule_hex:hex});timerEditor.load(configuration.timer_minutes);}});
++const timerEditor=MttlTimer.mount({available:()=>!!configuration&&[2,5].includes(snapshot?.state),locked:()=>configuration?.button_lock||0,schedule:()=>MttlSchedule.decode(configuration?.schedule_hex||MttlSchedule.encode(MttlSchedule.defaults())),save:async minutes=>{const fresh=await request('/api/config');MttlTimer.valid(minutes,MttlSchedule.decode(fresh.schedule_hex||MttlSchedule.encode(MttlSchedule.defaults())));await storeConfiguration({...fresh,timer_minutes:minutes});scheduleEditor.translate();drawTimers();}});
+   setTimeout(timerClock,999);
+   ['temperature','current','power'].forEach(k=>el('protect-'+k).oninput=protectionValues);
+   el('protection-form').onsubmit=async event=>{event.preventDefault();if(!configuration||protectionSaving)return;
+     const p={enabled:0,temperature:Number(el('protect-temperature').value),current:Math.round(Number(el('protect-current').value)*1000),power:Number(el('protect-power').value)};
+     ['temperature','current','power'].forEach((k,i)=>{if(el('protect-'+k+'-enabled').checked)p.enabled|=1<<i;});
+     protectionSaving=true;render();
+-    try{await storeConfiguration({...configuration,protection:p});el('protection-save-status').textContent=language==='en'?'Saved in device flash':'기기 플래시에 저장했습니다.';}catch(_){el('protection-save-status').textContent=language==='en'?'Save failed; settings not confirmed':'저장 실패 · 적용 여부를 확인하지 못했습니다.';}finally{protectionSaving=false;render();}
++    try{await storeConfiguration({...configuration,protection:p});el('protection-save-status').textContent='Saved in device flash';}catch(_){el('protection-save-status').textContent='Save failed; settings not confirmed';}finally{protectionSaving=false;render();}
+   };
+   document.querySelectorAll('#mqtt-form input,#mqtt-form button').forEach(node=>node.disabled=true);
+   el('firmware-form').onsubmit=event=>event.preventDefault();
+-  el('mqtt-form').onsubmit=async event=>{event.preventDefault();if(!configuration)return;const password=el('mqtt-password').value;el('mqtt-password').value='';try{await storeConfiguration({...configuration,broker:el('broker').value,port:Number(el('port').value),user:el('user').value,enabled:!!el('enabled').checked},password,!password);el('mqtt-status').textContent=language==='en'?'Saved in flash; plaintext IPv4 broker only':'플래시에 저장됨 · IPv4 비암호화 브로커 전용';}catch(_){el('mqtt-status').textContent=t('apiUnavailable');}};
++  el('mqtt-form').onsubmit=async event=>{event.preventDefault();if(!configuration)return;const password=el('mqtt-password').value;el('mqtt-password').value='';try{await storeConfiguration({...configuration,broker:el('broker').value,port:Number(el('port').value),user:el('user').value,enabled:!!el('enabled').checked},password,!password);el('mqtt-status').textContent='Saved in flash; plaintext IPv4 broker only';}catch(_){el('mqtt-status').textContent=t('apiUnavailable');}};
+   el('scan').onclick=async()=>{
+     el('scan').disabled=true;wifiMessage='scanProgress';render();
+     try{await request('/api/scan',{method:'POST'});let result;
+diff --git a/source/standalone/ui/ota-live.js b/source/standalone/ui/ota-live.js
+index f3db74f..80b5360 100644
+--- a/source/standalone/ui/ota-live.js
++++ b/source/standalone/ui/ota-live.js
+@@ -2,14 +2,13 @@
+ (function(){
+  'use strict';
+  const el=id=>document.getElementById(id);let ready=false,busy=false,result=null,detail='';
+-const words={ko:['전원을 끄지 마세요. 지원: 독립 FWR, 순정 1.0.66, 로컬 패치 1.0.68. 복구 시 독립 웹·직접 HA 연결이 종료됩니다.','펌웨어 파일 (.fwr)','업데이트','업데이트 준비됨','업데이트 준비 안 됨','올바른 .fwr 파일을 선택해 주세요.','업로드 중… 전원을 끄지 마세요.','업데이트 완료. Wi-Fi로 다시 연결합니다.','결과를 확인할 수 없습니다. 재접속 후 확인하고 다시 시도하세요.','업데이트하고 재부팅할까요?\n1.0.66/1.0.68 복구 후에는 독립 웹·직접 HA 대신 기존 프로비저닝 또는 백엔드 연결이 필요합니다.','복구 완료. 기존 프로비저닝 또는 백엔드 연결을 확인하세요.','이미 설치된 펌웨어입니다. 업데이트나 재부팅이 필요하지 않습니다.'],en:['Keep power on. Supported: standalone FWR, stock 1.0.66 or local-patched 1.0.68. Restoring removes standalone web/direct HA.','Firmware file (.fwr)','Update','Ready to update','Not ready to update','Select a valid .fwr file.','Uploading… Keep power on.','Update completed. Reconnecting to Wi-Fi.','Result uncertain. Reconnect and check before retrying.','Update and restart?\nRestoring 1.0.66/1.0.68 removes standalone web/direct HA. Use original provisioning or backend connectivity afterwards.','Restore completed. Check original provisioning or backend connectivity.','This firmware is already installed. No update or reboot is needed.']};
+- words.ko.push('업데이트는 완료되었습니다. 자동 재접속 시간이 초과되었습니다. 기기 IP를 확인하고 페이지를 새로고침하세요.');
+- words.en.push('Update completed, but automatic reconnection timed out. Check the device IP and refresh the page.');
++const words=['Keep power on. Supported: standalone FWR, stock 1.0.66 or local-patched 1.0.68. Restoring removes standalone web/direct HA.','Firmware file (.fwr)','Update','Ready to update','Not ready to update','Select a valid .fwr file.','Uploading… Keep power on.','Update completed. Reconnecting to Wi-Fi.','Result uncertain. Reconnect and check before retrying.','Update and restart?\nRestoring 1.0.66/1.0.68 removes standalone web/direct HA. Use original provisioning or backend connectivity afterwards.','Restore completed. Check original provisioning or backend connectivity.','This firmware is already installed. No update or reboot is needed.'];
++ words.push('Update completed, but automatic reconnection timed out. Check the device IP and refresh the page.');
+  let currentBuild=null,reconnecting=false,reconnectUntil=0;
+- function text(){return words[document.documentElement.lang==='en'?'en':'ko'];}
++ function text(){return words;}
+  const pendingKey='mttl.ota.pending-build';
+  function remember(id){try{if(id)localStorage.setItem(pendingKey,id);else localStorage.removeItem(pendingKey);}catch(_){}}
+- function render(){const w=text();el('ota-hint').textContent=w[0];el('ota-file-label').textContent=w[1];el('firmware-update').textContent=w[2];el('firmware-status').textContent=w[result===null?(ready?3:4):result]+(detail?' '+detail:'');el('firmware-picker').disabled=busy||reconnecting;el('firmware-update').disabled=busy||reconnecting||!ready;el('firmware-selected').textContent=el('firmware-file').files[0]?.name||MttlI18n.text(document.documentElement.lang==='en'?'en':'ko','noSelectedFile');}
++ function render(){const w=text();el('ota-hint').textContent=w[0];el('ota-file-label').textContent=w[1];el('firmware-update').textContent=w[2];el('firmware-status').textContent=w[result===null?(ready?3:4):result]+(detail?' '+detail:'');el('firmware-picker').disabled=busy||reconnecting;el('firmware-update').disabled=busy||reconnecting||!ready;el('firmware-selected').textContent=el('firmware-file').files[0]?.name||MttlI18n.text('en','noSelectedFile');}
+  async function reconnect(){
+   if(Date.now()>=reconnectUntil){reconnecting=false;result=12;render();return;}
+   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),5000);
+@@ -22,7 +21,6 @@ const words={ko:['전원을 끄지 마세요. 지원: 독립 FWR, 순정 1.0.66,
+   }catch(_){}finally{clearTimeout(timeout);}
+   setTimeout(reconnect,3000);
+  }
+- const language=el('language').onclick;el('language').onclick=()=>{language();render();};
+  el('firmware-picker').onclick=()=>el('firmware-file').click();el('firmware-file').onchange=()=>{result=null;detail='';render();};
+  el('firmware-form').onsubmit=async event=>{
+   event.preventDefault();if(busy||!ready)return;
+@@ -57,7 +55,7 @@ const words={ko:['전원을 끄지 마세요. 지원: 독립 FWR, 순정 1.0.66,
+   ready=status.ota_ready===true;const build=/^[0-9a-z][0-9a-z._-]{3,31}$/.test(status.build_id||'')?status.build_id:null;
+   currentBuild=build;if(el('current-build-id'))el('current-build-id').textContent=build||'—';
+   let expected;try{expected=localStorage.getItem(pendingKey);}catch(_){}
+-  if(expected&&build){detail=(document.documentElement.lang==='en'?'Build verification: ':'빌드 확인: ')+(expected===build?'OK · ':'NOT MATCHED · ')+build;if(expected===build)remember(null);}
++  if(expected&&build){detail='Build verification: '+(expected===build?'OK · ':'NOT MATCHED · ')+build;if(expected===build)remember(null);}
+   }catch(_){ready=false;statusTimer=setTimeout(refreshStatus,3000);}
+   finally{clearTimeout(timeout);statusPending=false;render();}
+  }
+diff --git a/source/standalone/ui/ota-test.html b/source/standalone/ui/ota-test.html
+index ae6fd43..220e412 100644
+--- a/source/standalone/ui/ota-test.html
++++ b/source/standalone/ui/ota-test.html
+@@ -1,13 +1,13 @@
+ <!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MTTL-W01 OTA Test</title>
+ <style>body{font:16px system-ui;max-width:700px;margin:30px auto;padding:16px;background:#f5f7fa}label{display:block;margin:18px 0}input{display:block;width:95%;padding:10px;margin-top:8px}button{padding:12px}pre{white-space:pre-wrap;overflow-wrap:anywhere}a{color:#167aaf}</style>
+-<h1>MTTL-W01 2.0.17 · OTA Test</h1><a href="/">Dashboard / 대시보드</a>
+-<p>Image2 BIN only / .bin 파일만 지원합니다. 부트로더·전체 덤프·FWR 파일은 올리지 마세요.</p>
+-<p>실험용입니다. 저장된 Wi-Fi 설정이 있으면 재부팅 후 자동 재연결합니다. 연결 실패 시 설정 AP로 돌아갑니다. 릴레이 제어는 비활성화되어 있습니다.</p>
++<h1>MTTL-W01 2.0.17 · OTA Test</h1><a href="/">Dashboard</a>
++<p>Image2 BIN only. Do not upload the bootloader, a full dump or a FWR file.</p>
++<p>Experimental build. Stored Wi-Fi settings reconnect automatically after a reboot; on failure the setup AP returns. Relay control is disabled.</p>
+ <pre id="state">Checking OTA readiness…</pre>
+ <form id="form"><label>Image2 .bin<input id="file" type="file" accept=".bin" required></label>
+ <label>BIN SHA-256 (manifest.json)<input id="hash" minlength="64" maxlength="64" pattern="[0-9a-fA-F]{64}" required autocomplete="off"></label>
+ <label>OTA token (ota-token.txt)<input id="token" type="password" minlength="32" maxlength="32" required autocomplete="off"></label>
+-<button id="send" disabled>Upload &amp; reboot / 업로드 및 재부팅</button></form>
++<button id="send" disabled>Upload &amp; reboot</button></form>
+ <pre id="result"></pre><script>
+ 'use strict';
+ const el=id=>document.getElementById(id);let ready=false;
+@@ -15,10 +15,10 @@ fetch('/api/firmware/status',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('
+ el('form').onsubmit=async e=>{e.preventDefault();if(!ready)return;
+  const file=el('file').files[0],hash=el('hash').value.trim().toLowerCase(),token=el('token').value;
+  if(!file||file.size<44||file.size>0x6a014||!file.name.toLowerCase().endsWith('.bin')||!/^[0-9a-f]{64}$/.test(hash)||!/^[0-9a-fA-F]{32}$/.test(token)){el('result').textContent='Invalid file/hash/token';return;}
+- if(!confirm('Inactive slot will be erased. Recovery debugger is required if boot fails. Continue?\n반대 슬롯이 지워집니다. 부팅 실패 시 디버거 복구가 필요합니다. 계속할까요?'))return;
+- el('send').disabled=true;el('result').textContent='Uploading… 최대 120초. 전원을 차단하지 마세요.';
++ if(!confirm('Inactive slot will be erased. Recovery debugger is required if boot fails. Continue?'))return;
++ el('send').disabled=true;el('result').textContent='Uploading… up to 120 s. Keep power on.';
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),120000);
+- try{const r=await fetch('/api/firmware/upload',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-MTTL-SHA256':hash,'X-MTTL-OTA-Token':token},body:file,signal:controller.signal,credentials:'omit'});const text=await r.text();if(!r.ok)throw Error(text);el('result').textContent=text+'\nReconnect to MTTL-W01-SETUP, then open 192.168.4.1. OTA 완료 후 AP에 다시 접속하세요.';}
++ try{const r=await fetch('/api/firmware/upload',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-MTTL-SHA256':hash,'X-MTTL-OTA-Token':token},body:file,signal:controller.signal,credentials:'omit'});const text=await r.text();if(!r.ok)throw Error(text);el('result').textContent=text+'\nReconnect to MTTL-W01-SETUP, then open 192.168.4.1.';}
+  catch(error){el('result').textContent=String(error)+'\nResult may be uncertain after a connection loss. Do not retry blindly.';}
+  finally{clearTimeout(timer);el('token').value='';}
+ };
+diff --git a/source/standalone/ui/scheduler.js b/source/standalone/ui/scheduler.js
+index 076950f..7fae794 100644
+--- a/source/standalone/ui/scheduler.js
++++ b/source/standalone/ui/scheduler.js
+@@ -7,29 +7,28 @@
+   c.rules.forEach((r,i)=>{const mode=r.mode&127;if(![r.minute,r.mode,r.day,r.channel,r.on].every(Number.isInteger)||r.mode<0||r.mode>255||mode>4||r.minute<0||r.minute>=1440||r.channel<0||r.channel>4||r.on<0||r.on>1||r.day<0||r.day>127||(!mode&&(r.mode||r.minute||r.day||r.channel||r.on))||(mode===2&&!r.day)||(mode===3&&(r.day<1||r.day>31))||([1,4].includes(mode)&&r.day))throw Error('Schedule');const p=2+i*6;v.setUint16(p,r.minute,true);b.set([r.mode,r.day,r.channel,r.on],p+2);});return Array.from(b,x=>x.toString(16).padStart(2,'0')).join('');
+  }
+  function decode(hex){if(typeof hex!=='string'||!/^[0-9a-f]{100}$/i.test(hex))throw Error('Schedule');const b=Uint8Array.from(hex.match(/../g),x=>parseInt(x,16)),v=new DataView(b.buffer);const c={timezone:v.getInt16(0,true),rules:Array.from({length:8},(_,i)=>{const p=2+i*6;return {minute:v.getUint16(p,true),mode:b[p+2],day:b[p+3],channel:b[p+4],on:b[p+5]};})};encode(c);return c;}
+- function mount({language,save,available,timers=()=>[0,0,0,0]}){
++ function mount({save,available,timers=()=>[0,0,0,0]}){
+   const box=document.getElementById('schedule-editor'),form=document.getElementById('schedule-form'),status=document.getElementById('schedule-status');let draft=defaults(),loaded=false,busy=false,dirty=false;
+-  const text=(ko,en)=>language()==='en'?en:ko;
+   function node(tag,value){const n=document.createElement(tag);if(value)n.textContent=value;if(['input','select','button'].includes(tag))n.disabled=busy||!loaded;return n;}
+   function select(items,value,change){const n=node('select');for(const [key,label,disabled]of items){const o=node('option',label);o.value=key;o.disabled=!!disabled;n.append(o);}n.value=String(value);n.onchange=()=>{dirty=true;change(Number(n.value));};return n;}
+   function field(parent,title,input){const l=node('label',title);l.append(input);parent.append(l);}
+-  function render(){box.replaceChildren();const hint=node('p',text('최대 8개 · NTP 필요 · 지나간 예약·없는 날짜는 건너뜁니다. 잠긴 콘센트는 예약으로도 바뀌지 않습니다.','8 rules. Requires NTP. Missed events and missing dates are skipped. A locked outlet is not switched by its schedules either.'));hint.className='muted';box.append(hint);
+-   const tz=select(Array.from({length:105},(_,i)=>{const m=-720+i*15,a=Math.abs(m);return [m,'UTC'+(m<0?'-':'+')+String(Math.floor(a/60)).padStart(2,'0')+':'+String(a%60).padStart(2,'0')];}),draft.timezone,x=>draft.timezone=x);field(box,text('시간대 · 서머타임 수동','Time zone · manual DST'),tz);
+-   draft.rules.forEach((r,i)=>{if(!r.mode)return;const card=node('div');card.className='name-editor';const head=node('div');head.className='row';head.append(node('b',text('예약 ','Rule ')+(i+1)));const enabled=node('input');enabled.type='checkbox';enabled.checked=!!(r.mode&128);enabled.onchange=()=>{dirty=true;r.mode=(r.mode&127)|(enabled.checked?128:0);};const lab=node('label',text('활성화','Enabled'));lab.prepend(enabled);head.append(lab);const del=node('button',text('삭제','Delete'));del.type='button';del.onclick=()=>{draft.rules.splice(i,1);draft.rules.push(empty());dirty=true;render();};head.append(del);card.append(head);
+-    field(card,text('반복','Repeat'),select([[1,text('매일','Daily')],[2,text('매주','Weekly')],[3,text('매월 지정일','Monthly date')],[4,text('매월 마지막 날','Last day of month')]],r.mode&127,x=>{r.mode=x|(r.mode&128);r.day=x===2?127:x===3?1:0;render();}));
+-    if((r.mode&127)===2){const days=node('div');days.className='row';[text('월','Mon'),text('화','Tue'),text('수','Wed'),text('목','Thu'),text('금','Fri'),text('토','Sat'),text('일','Sun')].forEach((name,k)=>{const l=node('label',name),c=node('input');c.type='checkbox';c.checked=!!(r.day&(1<<k));c.onchange=()=>{dirty=true;r.day=c.checked?r.day|(1<<k):r.day&~(1<<k);};l.prepend(c);days.append(l);});card.append(days);}
+-    if((r.mode&127)===3)field(card,text('날짜','Day'),select(Array.from({length:31},(_,k)=>[k+1,String(k+1)]),r.day,x=>r.day=x));
++  function render(){box.replaceChildren();const hint=node('p','8 rules. Requires NTP. Missed events and missing dates are skipped. A locked outlet is not switched by its schedules either.');hint.className='muted';box.append(hint);
++   const tz=select(Array.from({length:105},(_,i)=>{const m=-720+i*15,a=Math.abs(m);return [m,'UTC'+(m<0?'-':'+')+String(Math.floor(a/60)).padStart(2,'0')+':'+String(a%60).padStart(2,'0')];}),draft.timezone,x=>draft.timezone=x);field(box,'Time zone · manual DST',tz);
++   draft.rules.forEach((r,i)=>{if(!r.mode)return;const card=node('div');card.className='name-editor';const head=node('div');head.className='row';head.append(node('b','Rule '+(i+1)));const enabled=node('input');enabled.type='checkbox';enabled.checked=!!(r.mode&128);enabled.onchange=()=>{dirty=true;r.mode=(r.mode&127)|(enabled.checked?128:0);};const lab=node('label','Enabled');lab.prepend(enabled);head.append(lab);const del=node('button','Delete');del.type='button';del.onclick=()=>{draft.rules.splice(i,1);draft.rules.push(empty());dirty=true;render();};head.append(del);card.append(head);
++    field(card,'Repeat',select([[1,'Daily'],[2,'Weekly'],[3,'Monthly date'],[4,'Last day of month']],r.mode&127,x=>{r.mode=x|(r.mode&128);r.day=x===2?127:x===3?1:0;render();}));
++    if((r.mode&127)===2){const days=node('div');days.className='row';['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach((name,k)=>{const l=node('label',name),c=node('input');c.type='checkbox';c.checked=!!(r.day&(1<<k));c.onchange=()=>{dirty=true;r.day=c.checked?r.day|(1<<k):r.day&~(1<<k);};l.prepend(c);days.append(l);});card.append(days);}
++    if((r.mode&127)===3)field(card,'Day',select(Array.from({length:31},(_,k)=>[k+1,String(k+1)]),r.day,x=>r.day=x));
+     /* Native time inputs follow the browser/OS locale, not dashboard language. */
+     const time=node('div');time.className='schedule-time';let hour,minute,period;const update=()=>{dirty=true;r.minute=hour.validity.valid&&minute.validity.valid?(Number(hour.value)%12+Number(period.value)*12)*60+Number(minute.value):-1;};
+     function part(name,min,max,value){const n=node('input');n.type='number';n.min=min;n.max=max;n.step=1;n.required=true;n.value=String(value).padStart(2,'0');n.id='schedule-'+name+'-'+i;n.ariaLabel=name;n.oninput=update;return n;}
+     hour=part('hour',1,12,Math.floor(r.minute/60)%12||12);minute=part('minute',0,59,r.minute%60);
+-    period=select([[0,text('오전','AM')],[1,text('오후','PM')]],Math.floor(r.minute/720),update);period.id='schedule-period-'+i;
+-    time.append(period,hour,node('span',':'),minute);field(card,text('시각','Time'),time);
+-    field(card,text('대상','Target'),select([0,1,2,3,4].map(k=>{const blocked=k===4?timers().some(Boolean):!!timers()[k];return [k,(k===4?text('전체 채널','All channels'):text('채널 ','Channel ')+(k+1))+(blocked?text(' · 타이머 등록됨',' · timer registered'):''),blocked];}),r.channel,x=>r.channel=x));field(card,text('동작','Action'),select([[1,'ON'],[0,'OFF']],r.on,x=>r.on=x));box.append(card);
++    period=select([[0,'AM'],[1,'PM']],Math.floor(r.minute/720),update);period.id='schedule-period-'+i;
++    time.append(period,hour,node('span',':'),minute);field(card,'Time',time);
++    field(card,'Target',select([0,1,2,3,4].map(k=>{const blocked=k===4?timers().some(Boolean):!!timers()[k];return [k,(k===4?'All channels':'Channel '+(k+1))+(blocked?' · timer registered':''),blocked];}),r.channel,x=>r.channel=x));field(card,'Action',select([[1,'ON'],[0,'OFF']],r.on,x=>r.on=x));box.append(card);
+    });
+-   const actions=node('div');actions.className='row';const add=node('button',text('예약 추가','Add rule'));add.type='button';add.disabled=busy||!loaded||draft.rules.every(r=>r.mode)||timers().every(Boolean);add.onclick=()=>{const i=draft.rules.findIndex(r=>!r.mode),channel=timers().some(Boolean)?timers().findIndex(v=>!v):4;if(i<0||channel<0)return;draft.rules[i]={minute:600,mode:129,day:0,channel,on:0};dirty=true;render();};const apply=node('button',text('기기에 저장','Save to device'));apply.type='submit';apply.className='primary';apply.disabled=busy||!loaded||!available();actions.append(add,apply);box.append(actions);
++   const actions=node('div');actions.className='row';const add=node('button','Add rule');add.type='button';add.disabled=busy||!loaded||draft.rules.every(r=>r.mode)||timers().every(Boolean);add.onclick=()=>{const i=draft.rules.findIndex(r=>!r.mode),channel=timers().some(Boolean)?timers().findIndex(v=>!v):4;if(i<0||channel<0)return;draft.rules[i]={minute:600,mode:129,day:0,channel,on:0};dirty=true;render();};const apply=node('button','Save to device');apply.type='submit';apply.className='primary';apply.disabled=busy||!loaded||!available();actions.append(add,apply);box.append(actions);
+   }
+-  form.onsubmit=async e=>{e.preventDefault();if(busy||!loaded||!available())return;try{if(draft.rules.some(r=>(r.mode&127)&&timers().some((v,i)=>v&&(r.channel===4||r.channel===i))))throw Error('Conflict');const hex=encode(draft);busy=true;render();await save(hex);dirty=false;status.textContent=text('저장했습니다.','Saved.');}catch(_){status.textContent=text('저장 실패 · 타이머 중복·설정·연결 확인','Save failed. Check timer conflicts, settings and connection.');}finally{busy=false;render();}};
++  form.onsubmit=async e=>{e.preventDefault();if(busy||!loaded||!available())return;try{if(draft.rules.some(r=>(r.mode&127)&&timers().some((v,i)=>v&&(r.channel===4||r.channel===i))))throw Error('Conflict');const hex=encode(draft);busy=true;render();await save(hex);dirty=false;status.textContent='Saved.';}catch(_){status.textContent='Save failed. Check timer conflicts, settings and connection.';}finally{busy=false;render();}};
+   render();return {load(hex){if(dirty||busy)return;draft=decode(hex);loaded=true;render();},translate:render,ready(){const button=box.querySelector('button[type=submit]');if(button)button.disabled=busy||!loaded||!available();}};
+  }
+  root.MttlSchedule={encode,decode,defaults,mount};if(typeof module==='object'&&module.exports)module.exports=root.MttlSchedule;
+diff --git a/source/standalone/ui/timer.js b/source/standalone/ui/timer.js
+index 698b9cb..c48faca 100644
+--- a/source/standalone/ui/timer.js
++++ b/source/standalone/ui/timer.js
+@@ -5,23 +5,22 @@
+   if(!Array.isArray(minutes)||minutes.length!==4||minutes.some(m=>!Number.isInteger(m)||m<0||m>1440))throw Error('Timer');
+   if(schedule.rules.some(r=>(r.mode&127)&&minutes.some((m,i)=>m&&(r.channel===4||r.channel===i))))throw Error('Conflict');
+  }
+- function mount({language,save,available,schedule,locked}){
++ function mount({save,available,schedule,locked}){
+   const box=document.getElementById('timer-editor'),form=document.getElementById('timer-form'),status=document.getElementById('timer-status');let values=[0,0,0,0],loaded=false,busy=false,dirty=false;const liveNodes=[],liveTexts=[];
+-  const text=(ko,en)=>language()==='en'?en:ko;
+-  function render(){box.replaceChildren();const hint=document.createElement('p');hint.className='muted';hint.textContent=text('ON부터 자동 OFF · 1분~24시간. 재부팅 후 ON 채널은 처음부터 시작합니다. 예약과 같은 채널, 잠긴 채널은 등록할 수 없습니다.','Auto OFF after ON: 1 minute–24 hours. ON channels restart the full timer after reboot. A channel cannot also have a schedule, and a locked outlet cannot have a timer.');box.append(hint);
++  function render(){box.replaceChildren();const hint=document.createElement('p');hint.className='muted';hint.textContent='Auto OFF after ON: 1 minute–24 hours. ON channels restart the full timer after reboot. A channel cannot also have a schedule, and a locked outlet cannot have a timer.';box.append(hint);
+    values.forEach((value,i)=>{
+     const protect=!!((locked?locked():0)&(1<<i));if(protect)value=values[i]=0;
+-    const card=document.createElement('div');card.className='name-editor';const title=document.createElement('b');title.textContent=text('채널 ','Channel ')+(i+1);card.append(title);
++    const card=document.createElement('div');card.className='name-editor';const title=document.createElement('b');title.textContent='Channel '+(i+1);card.append(title);
+     const conflict=schedule().rules.some(r=>(r.mode&127)&&(r.channel===4||r.channel===i));const row=document.createElement('div');row.className='row';const hours=document.createElement('input'),minutes=document.createElement('input');
+-    [[hours,24,Math.floor(value/60),text('시간','Hours')],[minutes,59,value%60,text('분','Minutes')]].forEach(([input,max,v,label])=>{input.type='number';input.min=0;input.max=max;input.step=1;input.value=v;input.required=true;input.disabled=busy||!loaded||conflict||protect;input.style.width='85px';input.setAttribute('aria-label',title.textContent+' '+label);const l=document.createElement('label');l.textContent=label;l.append(input);row.append(l);});
++    [[hours,24,Math.floor(value/60),'Hours'],[minutes,59,value%60,'Minutes']].forEach(([input,max,v,label])=>{input.type='number';input.min=0;input.max=max;input.step=1;input.value=v;input.required=true;input.disabled=busy||!loaded||conflict||protect;input.style.width='85px';input.setAttribute('aria-label',title.textContent+' '+label);const l=document.createElement('label');l.textContent=label;l.append(input);row.append(l);});
+     const update=()=>{dirty=true;values[i]=Number(hours.value)*60+Number(minutes.value);};hours.oninput=minutes.oninput=update;
+-    const remove=document.createElement('button');remove.type='button';remove.textContent=text('삭제','Delete');remove.disabled=busy||!loaded||protect;remove.onclick=()=>{values[i]=0;dirty=true;render();};row.append(remove);card.append(row);
+-    const note=document.createElement('p');note.className='muted';note.textContent=protect?text('잠긴 채널입니다. 잠금을 해제한 뒤 등록하세요.','Locked outlet. Unlock it before registering a timer.'):conflict?text('예약에 등록된 채널입니다. 예약을 삭제한 후 설정하세요.','Registered in scheduler. Delete its schedules first.'):value?text('등록됨 · 저장 후 적용','Registered · save to apply'):text('미등록 · 시간 0으로 저장하면 삭제됩니다.','Unregistered · save zero to remove.');card.append(note);
+-    const live=document.createElement('div');live.className='muted';live.textContent=liveTexts[i]||text('타이머 00:00:00','Timer 00:00:00');liveNodes[i]=live;card.append(live);box.append(card);
+-   });const apply=document.createElement('button');apply.type='submit';apply.className='primary';apply.textContent=text('기기에 저장','Save to device');apply.disabled=busy||!loaded||!available();box.append(apply);
++    const remove=document.createElement('button');remove.type='button';remove.textContent='Delete';remove.disabled=busy||!loaded||protect;remove.onclick=()=>{values[i]=0;dirty=true;render();};row.append(remove);card.append(row);
++    const note=document.createElement('p');note.className='muted';note.textContent=protect?'Locked outlet. Unlock it before registering a timer.':conflict?'Registered in scheduler. Delete its schedules first.':value?'Registered · save to apply':'Unregistered · save zero to remove.';card.append(note);
++    const live=document.createElement('div');live.className='muted';live.textContent=liveTexts[i]||'Timer 00:00:00';liveNodes[i]=live;card.append(live);box.append(card);
++   });const apply=document.createElement('button');apply.type='submit';apply.className='primary';apply.textContent='Save to device';apply.disabled=busy||!loaded||!available();box.append(apply);
+   }
+-  form.onsubmit=async e=>{e.preventDefault();if(busy||!loaded||!available())return;try{valid(values,schedule());busy=true;render();await save([...values]);dirty=false;status.textContent=text('저장했습니다.','Saved.');}catch(_){status.textContent=text('저장 실패 · 최대 24시간, 예약 중복 및 연결을 확인하세요.','Save failed. Check 24-hour limit, schedule conflicts and connection.');}finally{busy=false;render();}};
+-  render();return {load(v){if(dirty||busy)return;values=[...(v||[0,0,0,0])];loaded=true;render();},show(texts){liveNodes.forEach((n,i)=>{liveTexts[i]=texts[i]||text('타이머 00:00:00','Timer 00:00:00');n.textContent=liveTexts[i];});},translate:render,ready(){const b=box.querySelector('button[type=submit]');if(b)b.disabled=busy||!loaded||!available();}};
++  form.onsubmit=async e=>{e.preventDefault();if(busy||!loaded||!available())return;try{valid(values,schedule());busy=true;render();await save([...values]);dirty=false;status.textContent='Saved.';}catch(_){status.textContent='Save failed. Check 24-hour limit, schedule conflicts and connection.';}finally{busy=false;render();}};
++  render();return {load(v){if(dirty||busy)return;values=[...(v||[0,0,0,0])];loaded=true;render();},show(texts){liveNodes.forEach((n,i)=>{liveTexts[i]=texts[i]||'Timer 00:00:00';n.textContent=liveTexts[i];});},translate:render,ready(){const b=box.querySelector('button[type=submit]');if(b)b.disabled=busy||!loaded||!available();}};
+  }
+  root.MttlTimer={valid,mount};if(typeof module==='object'&&module.exports)module.exports=root.MttlTimer;
+ })(globalThis);

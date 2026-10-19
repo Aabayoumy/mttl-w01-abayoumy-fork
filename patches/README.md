@@ -6,7 +6,7 @@ Each patch exists twice: `.patch` is `git format-patch` output (apply with
 ## Live series — applies to upstream **v2.0.17** (`311663e`)
 
 Base: upstream tag `v2.0.17` (identical to upstream `main`). Result: branch
-`feature/protection-v2`, tree `3d273c6257ac67ef1c61000d66a193ba69e180a4`.
+`feature/protection-v2`, tree `49c3ef130d6cf8ff8276f72d5b79bdd229f89703`.
 
 | patch | commit | what it does |
 |---|---|---|
@@ -16,10 +16,11 @@ Base: upstream tag `v2.0.17` (identical to upstream `main`). Result: branch
 | `0004-ui-note-and-build-id` | `24a34dd` | protection note removed; named OTA build ids |
 | `0005-timers-are-not-ha-entities` | `9a05d83` | timers stop being HA entities (34 → 26 entities) |
 | `0006-lock-every-command-path` | `cf02922` | the lock gates every command path; HA lock sensor (26 → 27 entities) |
+| `0007-english-only-dashboard` | `f88dd17` | English-only dashboard; Korean dictionary, inline `ko`/`en` pairs and the language selector removed (entity list unchanged) |
 
-Verified: `git am patches/000[1-6]-*.patch` on a clean `v2.0.17` checkout
-reproduces tree `3d273c62…` exactly, and the host suite passes (249 checks, 0
-failed).
+Verified: `git am patches/000[1-7]-*.patch` on a clean `v2.0.17` checkout
+reproduces tree `49c3ef13…` exactly, the host suite passes (249 checks, 0 failed)
+and the three dashboard/OTA node tests pass.
 
 ## What "locked" means (patch 0006)
 

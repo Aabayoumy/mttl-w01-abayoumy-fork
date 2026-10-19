@@ -43,7 +43,8 @@ named ids, which is what makes them byte-reproducible:
 
 ```sh
 # live series, based on upstream v2.0.17 (311663e)
-MTTL_OTA_BUILD_ID=abayoumy-lock     ... build.py   # → 334,284 B, gap 764, 27 HA entities (current)
+MTTL_OTA_BUILD_ID=abayoumy-en       ... build.py   # → 330,900 B, gap 4148, 27 HA entities (latest; built, not flashed)
+MTTL_OTA_BUILD_ID=abayoumy-lock     ... build.py   # → 334,284 B, gap 764, 27 HA entities (flashed to both strips)
 MTTL_OTA_BUILD_ID=abayoumy          ... build.py   # → 333,620 B, gap 1428, 26 HA entities (superseded)
 # archived series, based on v2.0.15 (ebfb39d) — what the strips currently run
 MTTL_OTA_BUILD_ID=abayoumy-notimers ... build.py   # → 333,372 B, gap 1676
@@ -72,7 +73,7 @@ curl -X POST http://10.0.0.53/api/firmware/upload \
      -H "Content-Type: application/x-mttl-fwr" \
      -H "Origin: http://10.0.0.53" -H "Expect:" \
      --max-time 90 \
-     --data-binary @mttl-w01-2.0.17-abayoumy-lock.fwr
+     --data-binary @mttl-w01-2.0.17-abayoumy-en.fwr
 # → {"written":true,"activated":true,"rebooting":true}; back in ~45 s on the other slot
 ```
 

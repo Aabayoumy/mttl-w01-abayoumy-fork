@@ -27,16 +27,25 @@ commit adds one Home Assistant entity — the lock sensor, **27 entities per str
 (flashed 2026-10-19, behaviour exercised over the API, see *Sixth flash*), so this
 is the live firmware.
 
+**The dashboard is English only** (`f88dd17`, 2026-10-19) — see *Commit 7: the
+dashboard drops Korean*. The Korean dictionary, every inline `ko`/`en` pair and the
+header language selector are gone; `mttl_settings_default()` now writes `language=1`
+(English) and the device build refuses Hangul in any gzipped asset. The dictionary and
+the inline pairs were **3,390 B of the gzipped UI** (19,429 → 16,039), so the build
+**`abayoumy-en`** (gap **4148 B**, 330,900 B, UI gzip 16,039 B) is the highest-headroom
+build of the series. It is **built and host-verified, not yet flashed**: both strips
+still run `abayoumy-lock`.
+
 | | |
 |---|---|
 | Base | shipped series: `main` = `ebfb39d` (`v2.0.15-3-geb...`), tree `b187b492348a082f5fe7aa5d81fb272a9fa5451f`; rebased series: upstream tag `v2.0.17` = `311663e`, tree `420991a99008bf196bf5468e7770c45c4096e7c8` |
-| Branch | `feature/protection-v2`, two lines. **Shipped (2.0.15 base)**, kept as `archive/protection-v2-2.0.15`, tree `b7a0d1f15ce1ab99c2d7b7b489aee501a9de1adb`: `9382e2a` (isolation; builder re-created it as `16c3a2f`), `ec34e41` (trip visibility; builder: `fcbc98e`), `9e8a7e1` (one limit for every outlet; builder: `6ca59da`), `0b7947d` (drop the safety note + named build id; builder: `2106825`), `6ff0735` (timers are not HA entities; builder: `419f225`). **Live (2.0.17 base)**, tree `3d273c6257ac67ef1c61000d66a193ba69e180a4`: `fc6338c`, `aa68f78`, `c7e8a5e`, `24a34dd`, `9a05d83`, `cf02922` — identical SHAs on both sides, because the builder fetched them from the Mac's bundle rather than replaying the rebase |
-| Patches | **live series** (applies to `v2.0.17`): `patches/0001-per-channel-current-isolation.patch` (71,533 B) + `patches/0002-protection-trip-visibility.patch` (12,427 B) + `patches/0003-current-limit-every-outlet.patch` (35,340 B) + `patches/0004-ui-note-and-build-id.patch` (8,037 B) + `patches/0005-timers-are-not-ha-entities.patch` (30,686 B) + `patches/0006-lock-every-command-path.patch` (41,427 B); archived 2.0.15 series in `patches/2.0.15/`; layout + rebase traps in `patches/README.md` |
-| Artifacts | isolation: `build-linux/mttl-w01-2.0.15-isolation.fwr` 334,388 B `0e436af0…`, build_id `e3787c6fd511f577`; trip sensor: `build-linux/mttl-w01-2.0.15-trip-sensor.fwr` 334,692 B `9c1390b5…`, build_id `b3dba27349ceea73`; limit-per-outlet: `build-linux/mttl-w01-2.0.15-limit-per-outlet.fwr` 334,556 B `404c95ab…`, build_id `57d3230f785990ba`; named build: `build-linux/mttl-w01-2.0.15-abayoumy.fwr` 334,300 B `3499190b…`, build_id `abayoumy`; timers retired: `build-linux/mttl-w01-2.0.15-abayoumy-notimers.fwr` 333,372 B `a61d34a0…`, build_id `abayoumy-notimers`; (2.0.17, never flashed, superseded: `build-linux/mttl-w01-2.0.17-abayoumy.fwr` 333,620 B `90ff0bb5…`, build_id `abayoumy`); (**live on both strips** `build-linux/mttl-w01-2.0.17-abayoumy-lock.fwr` 334,284 B `b65c0e30…`, build_id **`abayoumy-lock`**) |
-| Manifests | `build-linux/manifest-isolation-e3787c6fd511f577.json`, `build-linux/manifest-trip-b3dba27349ceea73.json`, `build-linux/manifest-57d3230f785990ba.json`, `build-linux/manifest-abayoumy.json`, `build-linux/manifest-abayoumy-notimers.json`, `build-linux/manifest-2.0.17-abayoumy.json`, `build-linux/manifest-2.0.17-abayoumy-lock.json` (plus `build-linux/ui-assets-2.0.17-abayoumy-lock.json`, the per-asset gzip report) |
-| Build log | `build-linux/build-0003-limit-per-outlet.log`, `build-linux/build-0004-abayoumy.log`, `build-linux/build-0005-abayoumy-notimers.log`, `build-linux/build-2.0.17-abayoumy.log` and `build-linux/build-2.0.17-abayoumy-lock.log` (UI asset report, compile log, manifest of each archived build) |
+| Branch | `feature/protection-v2`, two lines. **Shipped (2.0.15 base)**, kept as `archive/protection-v2-2.0.15`, tree `b7a0d1f15ce1ab99c2d7b7b489aee501a9de1adb`: `9382e2a` (isolation; builder re-created it as `16c3a2f`), `ec34e41` (trip visibility; builder: `fcbc98e`), `9e8a7e1` (one limit for every outlet; builder: `6ca59da`), `0b7947d` (drop the safety note + named build id; builder: `2106825`), `6ff0735` (timers are not HA entities; builder: `419f225`). **Live (2.0.17 base)**, tree `49c3ef130d6cf8ff8276f72d5b79bdd229f89703`: `fc6338c`, `aa68f78`, `c7e8a5e`, `24a34dd`, `9a05d83`, `cf02922`, `f88dd17` — identical SHAs on both sides, because the builder fetched them from the Mac's bundle rather than replaying the rebase |
+| Patches | **live series** (applies to `v2.0.17`): `patches/0001-per-channel-current-isolation.patch` (71,533 B) + `patches/0002-protection-trip-visibility.patch` (12,427 B) + `patches/0003-current-limit-every-outlet.patch` (35,340 B) + `patches/0004-ui-note-and-build-id.patch` (8,037 B) + `patches/0005-timers-are-not-ha-entities.patch` (30,686 B) + `patches/0006-lock-every-command-path.patch` (41,427 B) + `patches/0007-english-only-dashboard.patch` (132,659 B); archived 2.0.15 series in `patches/2.0.15/`; layout + rebase traps in `patches/README.md` |
+| Artifacts | isolation: `build-linux/mttl-w01-2.0.15-isolation.fwr` 334,388 B `0e436af0…`, build_id `e3787c6fd511f577`; trip sensor: `build-linux/mttl-w01-2.0.15-trip-sensor.fwr` 334,692 B `9c1390b5…`, build_id `b3dba27349ceea73`; limit-per-outlet: `build-linux/mttl-w01-2.0.15-limit-per-outlet.fwr` 334,556 B `404c95ab…`, build_id `57d3230f785990ba`; named build: `build-linux/mttl-w01-2.0.15-abayoumy.fwr` 334,300 B `3499190b…`, build_id `abayoumy`; timers retired: `build-linux/mttl-w01-2.0.15-abayoumy-notimers.fwr` 333,372 B `a61d34a0…`, build_id `abayoumy-notimers`; (2.0.17, never flashed, superseded: `build-linux/mttl-w01-2.0.17-abayoumy.fwr` 333,620 B `90ff0bb5…`, build_id `abayoumy`); (**live on both strips** `build-linux/mttl-w01-2.0.17-abayoumy-lock.fwr` 334,284 B `b65c0e30…`, build_id **`abayoumy-lock`**); English only: `build-linux/mttl-w01-2.0.17-abayoumy-en.fwr` **330,900 B** `afb5fd1b…`, build_id **`abayoumy-en`** (built + host-verified, not flashed) |
+| Manifests | `build-linux/manifest-isolation-e3787c6fd511f577.json`, `build-linux/manifest-trip-b3dba27349ceea73.json`, `build-linux/manifest-57d3230f785990ba.json`, `build-linux/manifest-abayoumy.json`, `build-linux/manifest-abayoumy-notimers.json`, `build-linux/manifest-2.0.17-abayoumy.json`, `build-linux/manifest-2.0.17-abayoumy-lock.json`, `build-linux/manifest-2.0.17-abayoumy-en.json` (plus the per-asset gzip reports `build-linux/ui-assets-2.0.17-abayoumy-lock.json` and `build-linux/ui-assets-2.0.17-abayoumy-en.json`) |
+| Build log | `build-linux/build-0003-limit-per-outlet.log`, `build-linux/build-0004-abayoumy.log`, `build-linux/build-0005-abayoumy-notimers.log`, `build-linux/build-2.0.17-abayoumy.log`, `build-linux/build-2.0.17-abayoumy-lock.log` and `build-linux/build-2.0.17-abayoumy-en.log` (UI asset report, compile log, manifest of each archived build) |
 | Contract run | `build-linux/contract3-js-c-limit-per-outlet/` (script, C harness, transcript; still valid — commits 4 and 5 do not touch the settings codec) |
-| Source backup | `build-linux/fork-main+protection-v2+ha-wip.bundle` (git bundle: upstream `main` = `v2.0.17`, the `v2.0.17` tag, the live branch at `cf02922`, the archived shipped line at `6ff0735`, and the parked HA branch; 7,093,313 B; `git bundle verify` passes; a fresh clone of it reproduces tree `3d273c62…` on the live branch and `b7a0d1f1…` on the archive) |
+| Source backup | `build-linux/fork-main+protection-v2+ha-wip.bundle` (git bundle: upstream `main` = `v2.0.17`, the `v2.0.17` tag, the live branch at `f88dd17`, the archived shipped line at `6ff0735`, and the parked HA branch; 7,101,326 B; `git bundle verify` passes; a fresh clone of it reproduces tree `49c3ef13…` on the live branch and `b7a0d1f1…` on the archive) |
 | Built on | CT 106 `mttlbuild`, `10.0.0.19` (Debian 13, on pve2) — see `BUILD_LXC.md` |
 | Flashed | LivingRoom `10.0.0.53`: isolation 524288 → 45056, trip build 45056 → 524288, limit-per-outlet 524288 → 45056, abayoumy 45056 → 524288, abayoumy-notimers 524288 → 45056; BedRoom `10.0.0.54`: `2.0.14` 524288 → 45056 (first flash of this branch on that strip), abayoumy 45056 → 524288, abayoumy-notimers 524288 → 45056 |
 
@@ -226,6 +235,7 @@ overrun fails the link, it cannot corrupt the stack at run time.
 | **shipped: timers are not HA entities (`6ff0735`)** | **1676** | 333,372 | **18,877** | CT 106 |
 | **rebased onto upstream `2.0.17` (live branch, never flashed — superseded by `abayoumy-lock`)** | **1428** | 333,620 | **19,168** | CT 106 |
 | **lock gates every command path (`cf02922`, flashed on both strips)** | **764** | 334,284 | **19,429** | CT 106 |
+| **English-only dashboard (`f88dd17`, built + host-verified, not flashed)** | **4148** | 330,900 | **16,039** | CT 106 |
 
 Per-channel current plus isolated cuts cost **960 B** (1620 → 660); the HA trip
 sensor cost another **304 B** (660 → 356). Commit 3 gave **136 B back**
@@ -731,6 +741,46 @@ try the web toggle, the HA switch, HA "all", a timer and a schedule on it — ea
 must be refused, the manual attempts must flash that channel's LED three times,
 `sensor.…_lock` must name the outlet, and an over-limit load on the *locked*
 outlet must still be cut.
+
+## Commit 7: the dashboard drops Korean (`f88dd17`, 2026-10-19) — build `abayoumy-en`, built and host-verified, not flashed
+
+The dashboard carried a second, Korean dictionary and a header button that switched between the two
+languages. The choice was stored in `localStorage`, in the `language` byte of the settings record, in
+the OTA page's own word list, and every user-visible string existed twice — once as the KO arm of a
+`cond ? en : ko` ternary, or as the first argument of a `text(ko,en)` / `logEvent(ko,en)` helper. The
+strip is used in one language, so all of it is gone.
+
+| file | before | after |
+|---|---|---|
+| `ui/i18n.js` | `ko` + `en` dictionaries (5,941 B raw, 2,560 B gzip in the filtered device copy) | one `en` dictionary (2,847 B raw, 1,360 B gzip); `text(language,key,args)` keeps its three-argument shape so no call site and no build step changed, and ignores the language argument |
+| `ui/live.js` | `let language`, `preferences.language`, per-row `ko`/`en` log messages, ~19 KO/EN ternaries | no `language`; the session log keeps one message per row; `settingsBody()` writes `language:1` and the save-confirmation loop compares against `1` |
+| `ui/app.js` (preview only) | `preferences.language`, `applyLanguage()`, the `#language` click handler | `applyText()`, `documentElement.lang='en'`, no preference |
+| `ui/timer.js`, `ui/scheduler.js` | a `text(ko,en)` helper and 44 KO/EN pairs, no helper left | plain English strings, the `language` mount parameter is gone |
+| `ui/ota-live.js` | `words={ko:[…],en:[…]}`, `words.ko.push(…)` and a re-render hooked to the language button | one `words` array; the hook is gone |
+| `ui/index.html` | 638 Hangul characters of static fallback text, the `#language` button + its CSS rule, `<html lang="ko">` | English fallbacks taken from the dictionary, no button, `<html lang="en">` |
+| `ui/ota-test.html` | bilingual Korean/English test page | English |
+| `build_assets.py` | bilingual i18n filtering, Korean fallback rewrites, `messages['ko']` bookkeeping | single-language filtering; the device build asserts **no Hangul** in any gzipped asset |
+| `firmware/settings.c` | `mttl_settings_default()` left `language = 0` (Korean) | writes `language = 1` (English) for a fresh record |
+
+The settings record is deliberately still **v8 and unchanged**. `mttl_settings_valid()` keeps
+accepting `0`, so a strip that already stored Korean loads its record normally instead of being
+rejected, and the byte stops mattering: the dashboard is English whatever it says, and every save
+writes `1`. No migration, no version bump, no downgrade hazard.
+
+Measurements (CT 106, `MTTL_OTA_BUILD_ID=abayoumy-en`, two builds byte-identical):
+
+| | |
+|---|---|
+| `.fwr` | **330,900 B** (was 334,284 B for `abayoumy-lock`) |
+| sha256 | `afb5fd1b0e32a6ce61d22e47b3a5715e0f75fc5818970c28b0776f6d39770fcb` |
+| `static_gap_to_msp_bytes` | **4148** (was 764) |
+| UI gzip | **16,039 B** of the 20,000 B budget (was 19,429 B): `/` 4,459 (was 4,818), `/i18n.js` 1,360 (was 2,560), `/live.js` 10,220 (was 12,051) |
+| checks | host suite 249 / 0 failed; the three dashboard/OTA node tests pass; `node --check` clean on every UI script |
+
+So the Korean dictionary and the inline pairs were worth **3,390 B of gzipped UI**, and the link gap
+grew from 764 B to 4,148 B — the first real headroom the series has had since the HA limit-control
+surface was measured at ≈1,004 B (see the section below). Flashing this build is the next step; until
+then both strips keep running `abayoumy-lock`.
 
 ## HA control surface for the limits — measured, does not fit (decided: not built)
 

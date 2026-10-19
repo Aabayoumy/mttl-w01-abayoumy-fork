@@ -25,6 +25,11 @@ sensor at index 26. See *The lock sensor* below. That change cost **664 B**, i.e
 gap 1428 → **764 B**; the discovery entity itself is the smaller part of it (the
 gate, the refusal LED flash, the timer rule and the UI state account for the rest).
 
+Third follow-up (2026-10-19, commit 7 `f88dd17`, build `abayoumy-en`): the dashboard is English only.
+The entity list is **unchanged** (still **27** per strip), but dropping the Korean dictionary and the
+inline `ko`/`en` pairs returned **3,390 B** of gzipped UI (19,429 → 16,039), so that build sits at a
+**4,148 B** gap — the most headroom of the series. It is built and host-verified, not yet flashed.
+
 ## What shipped: option C, trip visibility only (measured 304 B)
 
 The one thing HA is genuinely better at here is **telling you something was cut**.
@@ -190,6 +195,7 @@ verified clean) the real gap comes out as:
 | flashed build after commits 3–5 — `abayoumy-notimers` | **1676** left |
 | rebased onto upstream `2.0.17` — `abayoumy` (never flashed, superseded) | **1428** left |
 | lock build, now live on both strips — `abayoumy-lock` | **764** left |
+| English-only dashboard — `abayoumy-en` (built, not flashed) | **4148** left |
 
 Rough split of the 1,004 B, from the diff and the build log (estimates, ±20 %):
 discovery branch + literals ≈ 275, command parser ≈ 300, engine dispatch +
@@ -257,6 +263,10 @@ UI text away and leaves zero slack; **E** is the safe default.
   every command path and publishes its state — see *The lock sensor* above. A
   strip announces **27** entities from that build on; the 26 of the flashed build
   keep their ids and topics.
+* Done, 2026-10-19 (commit 7 `f88dd17`, build `abayoumy-en`): the dashboard is English only — the
+  entity list does not change (**27** per strip), but the freed gzipped UI moved the gap from 764 B
+  to **4,148 B**, so the parked limit-control surface (≈1,004 B) would fit again if it were ever
+  wanted.
 * Still unbuilt, if ever wanted:
   * **HA control of the limits** (options B/D) — parked on `wip/ha-limit-entities`,
     does not fit today: ~1,004 B discovery-and-command version (link failure) or

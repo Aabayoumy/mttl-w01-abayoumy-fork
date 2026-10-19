@@ -41,11 +41,15 @@ What a strip running this fork does that an upstream `v2.0.17` strip does not:
    OTA page accepts a name instead of only 16 hex characters.
 8. **Settings record v8.** Stores the four `channel_current_ma` values; records written by older
    firmware migrate instead of being rejected, and a downgrade still reads the same record.
+9. **One language: English only.** The Korean dictionary, every inline `ko`/`en` string pair and the
+   header language selector are gone (§7); `text()` keeps its shape, a fresh settings record starts
+   as English, and the device build now refuses Korean text in any asset.
 
 All of this is RAM-budget work: the firmware text shares its region with the gzipped web UI, and the
-linker refuses an image that crosses the reserved stack budget. The lock commit (§3) costs 664 B
-and the published build leaves a **764 B** gap to the MSP limit; per-object costs, the build log and
-every measurement are in [`docs/FEATURE-per-channel-current.md`](docs/FEATURE-per-channel-current.md).
+linker refuses an image that crosses the reserved stack budget. The lock commit (§3) costs 664 B;
+dropping the Korean dictionary and the inline pairs (§7) returned 3,390 B of the gzip budget, so the
+published build leaves a **4,148 B** gap to the MSP limit. Per-object costs, the build log and every
+measurement are in [`docs/FEATURE-per-channel-current.md`](docs/FEATURE-per-channel-current.md).
 
 ### Upstream vs this fork, side by side
 
@@ -67,6 +71,7 @@ every measurement are in [`docs/FEATURE-per-channel-current.md`](docs/FEATURE-pe
 | OTA build id | random `secrets.token_hex(8)`; the OTA page accepted `/^[0-9a-f]{16}$/` only | `MTTL_OTA_BUILD_ID` used verbatim; the page accepts `/^[0-9a-z][0-9a-z._-]{3,31}$/` |
 | protection-tab footer | *"No automatic ON or lock. Sensor failures show errors only. This does not replace hardware safety protection."* | removed — protection is implemented; the two-round policy hint above the form stays |
 | settings record | v7 | **v8** = v7 + 4 × `u16 channel_current_ma` |
+| dashboard language | Korean and English, switched by a header button and remembered in `localStorage` and in the settings record | **English only** — one dictionary, no button, no preference; the settings byte is still stored and reported |
 
 ### 1. Protection — one limit, per-outlet judgement, isolated cut
 
@@ -221,6 +226,27 @@ rejected. The fork deliberately keeps the record self-consistent: it never reads
 deciding, and the web UI mirrors the single limit into all four values on save — so the stored
 record, `/api/config` and a downgraded firmware all agree.
 
+### 7. One language: English only (`patches/0007-…`)
+
+The dashboard shipped two dictionaries and a header button that switched between them: the choice
+lived in `localStorage`, in the `language` byte of the settings record, in the OTA page's own word
+list and in every string written as a `ko`/`en` pair. The strip is used in one language, so the
+mechanism is gone.
+
+| | |
+|---|---|
+| dictionary | `ui/i18n.js` keeps a single `en` table. `text(language,key,args)` keeps its three-argument shape, so every call site and the device-side compact builder are unchanged; the language argument is ignored |
+| inline strings | the KO arm of every `cond ? en : ko`, the second argument of every `text(ko,en)` / `logEvent(ko,en)` helper and the helpers themselves are deleted; the browser-session log keeps one message per row |
+| static fallbacks | `index.html`, `ota-test.html` and the OTA panel that `build_assets.py` injects are English; the `#language` button and its CSS rule are gone |
+| OTA page | a single English word list, no re-render on a language toggle |
+| build guard | the device build refuses any gzipped asset containing a Hangul character, next to the existing preview-text denylist, and the device dictionary is built as a single-language table |
+| settings record | **v8 unchanged**: `mttl_settings_default()` writes `language=1` (English) for a fresh record, a stored `0` stays valid and simply renders English, the dashboard writes `1` whenever it saves, and the device keeps reporting the byte in `/api/config` |
+| RAM | the Korean dictionary and the inline pairs were 3,390 B of the 20,000 B gzip budget (19,429 → 16,039), which is what lifted the link gap from 764 B to 4,148 B |
+
+Protection, the lock, the timers, the schedules and the HA entity list are untouched — 27 entities
+per strip before and after — and the three dashboard/OTA node tests were updated to the English
+wording.
+
 ### Not built: Home Assistant control of the limits — measured, does not fit
 
 Four MQTT `number` entities (read *and* write the limits from HA) were implemented and measured: the
@@ -230,9 +256,9 @@ pushes `__HeapLimit` past the reserved MSP budget — the linker rejects the ima
 [`patches/wip-0002-ha-limit-entities-does-not-fit.patch`](patches/wip-0002-ha-limit-entities-does-not-fit.patch)
 on branch `wip/ha-limit-entities`. The numbers, the alternatives and the zero-firmware-cost REST
 sensor variant are in [`docs/HA-LIMITS-WIRING.md`](docs/HA-LIMITS-WIRING.md). The decision: keep
-limit *changes* in the device web UI (which shows the temperature, current and power limits together,
-in both languages) and spend the RAM on what HA is genuinely good at — knowing that something was
-cut, and knowing what is locked.
+limit *changes* in the device web UI (which shows the temperature, current and power limits together)
+and spend the RAM on what HA is genuinely good at — knowing that something was cut, and knowing what
+is locked.
 
 ### Deliberately unchanged from upstream
 
@@ -243,7 +269,7 @@ is on; HTTP and MQTT are unauthenticated on the LAN, so the strip belongs on a t
 
 ## Patches
 
-Six commits on top of upstream `v2.0.17`. `.patch` is `git format-patch` output (apply with
+Seven commits on top of upstream `v2.0.17`. `.patch` is `git format-patch` output (apply with
 `git am`), `.diff` is the same commit as a plain diff for reading.
 
 | patch | commit | feature |
@@ -254,6 +280,7 @@ Six commits on top of upstream `v2.0.17`. `.patch` is `git format-patch` output 
 | `0004-ui-note-and-build-id` | `24a34dd` | protection note off, named OTA build ids (§5) |
 | `0005-timers-are-not-ha-entities` | `9a05d83` | timers stop being HA entities, 34 → 26 (§4) |
 | `0006-lock-every-command-path` | `cf02922` | the lock gates every command path; HA lock sensor, 26 → 27 (§3) |
+| `0007-english-only-dashboard` | `f88dd17` | English-only dashboard; Korean dictionary, inline `ko`/`en` pairs and the language selector removed (§7) |
 
 `patches/README.md` documents each patch; `patches/2.0.15/` holds the earlier series based on the
 older 2.0.15 base (superseded, kept for reference).
@@ -275,8 +302,8 @@ older 2.0.15 base (superseded, kept for reference).
 git clone https://github.com/af950833/mttl_w01_standalone.git
 cd mttl_w01_standalone && git checkout v2.0.17
 
-# 2. apply this series (resulting tree: 3d273c6257ac67ef1c61000d66a193ba69e180a4)
-git am /path/to/mttl-w01-abayoumy-fork/patches/000[1-6]-*.patch
+# 2. apply this series (resulting tree: 49c3ef130d6cf8ff8276f72d5b79bdd229f89703)
+git am /path/to/mttl-w01-abayoumy-fork/patches/000[1-7]-*.patch
 
 # 3. host unit tests (no hardware needed) — expect 249 checks, 0 failed
 sh source/standalone/host_test/run.sh
@@ -284,7 +311,7 @@ sh source/standalone/host_test/run.sh
 # 4. build (needs the upstream builder and the vendor toolchain; see tools/README.md)
 export MTTL_GCC_DIR=$HOME/mttl-tools/gcc
 export MTTL_TERSER_ROOT=$HOME/mttl-tools/js/node_modules/terser
-export MTTL_OTA_BUILD_ID=abayoumy-lock          # named id -> byte-reproducible build
+export MTTL_OTA_BUILD_ID=abayoumy-en            # named id -> byte-reproducible build
 ~/mttl-tools/venv/bin/python3 build.py
 ```
 
@@ -294,24 +321,27 @@ Flash over the air on the local network (the strip swaps boot slots and reboots;
 ```sh
 curl -X POST http://<strip-ip>/api/firmware/upload \
   -H "Content-Type: application/x-mttl-fwr" -H "Origin: http://<strip-ip>" -H "Expect:" \
-  --max-time 90 --data-binary @firmware/mttl-w01-2.0.17-abayoumy-lock.fwr
-curl -s http://<strip-ip>/api/firmware/status      # expect build_id abayoumy-lock, version 2.0.17
+  --max-time 90 --data-binary @firmware/mttl-w01-2.0.17-abayoumy-en.fwr
+curl -s http://<strip-ip>/api/firmware/status      # expect build_id abayoumy-en, version 2.0.17
 ```
 
 ## The build in `firmware/`
 
 | | |
 |---|---|
-| file | `mttl-w01-2.0.17-abayoumy-lock.fwr` |
-| size | 334,284 bytes |
-| sha256 | `b65c0e30e1c9ffb641b406de5e652d4721fc02baa70fa3ce5cd1335b81d6067b` |
-| build id / version | `abayoumy-lock` / `2.0.17` (base `v2.0.17`) |
+| file | `mttl-w01-2.0.17-abayoumy-en.fwr` |
+| size | 330,900 bytes |
+| sha256 | `afb5fd1b0e32a6ce61d22e47b3a5715e0f75fc5818970c28b0776f6d39770fcb` |
+| build id / version | `abayoumy-en` / `2.0.17` (base `v2.0.17`) |
 | profile | `NETWORK_OTA_TEST_RAM_SETTINGS` (relay, OTA write, settings flash, watchdog enabled) |
-| RAM gap to MSP | 764 bytes free (4,096-byte stack reserve) |
-| UI assets | 3 assets, 19,429 bytes gzip total (cap 20,000) |
+| RAM gap to MSP | 4,148 bytes free (4,096-byte stack reserve) |
+| UI assets | 3 assets, 16,039 bytes gzip total (cap 20,000) — one English dictionary |
 
-Only the latest build is published. The earlier ids (`abayoumy`, `abayoumy-notimers`) were
-intermediate steps on the way to `abayoumy-lock`; their logs and manifests are not in this repo.
+Only the latest build is published. The earlier ids (`abayoumy`, `abayoumy-notimers`,
+`abayoumy-lock`) were intermediate steps on the way to `abayoumy-en`; their logs and manifests are
+not in this repo. `abayoumy-en` is byte-reproducible from the patch series and host-verified, and
+the two strips still run `abayoumy-lock` until it is flashed — it is a superset of that build
+(protection, lock, timers) plus the English-only dashboard.
 
 ## Home Assistant
 
@@ -326,13 +356,16 @@ control only — protection, timers, schedules and the lock all work on the devi
 
 ## Verification
 
-Each build was flashed and checked on physical strips before being published: OTA slot swap,
+The builds that were flashed were checked on physical strips before being published: OTA slot swap,
 byte-identical `/api/config` before and after, preserved energy counters, UI assets matching the
 manifest, every announced entity present in HA, and behavioural tests of the trip isolation, the
 lock (buttons, web UI single/ALL, HA single/ALL, timers, schedules) and the timer rule. The host
-unit suite passes **249 checks / 0 failed**, and applying the published patches to a pristine
-upstream `v2.0.17` reproduces tree `3d273c6257ac67ef1c61000d66a193ba69e180a4` exactly — the tree the
-firmware here was built from. Raw transcripts and photos are not included in this repository.
+unit suite passes **249 checks / 0 failed**, the three dashboard/OTA node tests pass, and applying
+the published patches to a pristine upstream `v2.0.17` reproduces tree
+`49c3ef130d6cf8ff8276f72d5b79bdd229f89703` exactly — the tree the firmware here was built from, with
+the build refusing Korean text in any gzipped asset. `abayoumy-en` is built and host-verified but
+**not yet flashed**: it carries the flashed-and-exercised `abayoumy-lock` behaviour plus the
+English-only dashboard (§7). Raw transcripts and photos are not included in this repository.
 
 ## Licence
 

@@ -1,17 +1,17 @@
 {
   "version": "2.0.17",
   "profile": "NETWORK_OTA_TEST_RAM_SETTINGS",
-  "elf_sha256": "9d8be9cc3d817f85e976dcc730385f2047701781c62ef548ea247cdc6ccadb8e",
+  "elf_sha256": "5e5ec6eeebbc338094214171f9ae34355d1e018f02970df2f2189a3dca634ed7",
   "files": [
     {
       "path": "/root/mttl_fork_check/source/standalone/results/network-ota-test/mttl-w01-2.0.17-network-OTA-test.bin",
-      "bytes": 334284,
-      "sha256": "90442933c0ca8fa31f7da14122fd99772489700406f5949eaef3aa83fc6803fb"
+      "bytes": 330900,
+      "sha256": "64704b2521bae2454756ed8c1ca0471b4f1d5326f5272e780fc2244fc9aac668"
     },
     {
       "path": "/root/mttl_fork_check/source/standalone/results/network-ota-test/mttl-w01-2.0.17-network-OTA-test.fwr",
-      "bytes": 334284,
-      "sha256": "b65c0e30e1c9ffb641b406de5e652d4721fc02baa70fa3ce5cd1335b81d6067b"
+      "bytes": 330900,
+      "sha256": "afb5fd1b0e32a6ce61d22e47b3a5715e0f75fc5818970c28b0776f6d39770fcb"
     }
   ],
   "network_start_verified_in_setup_machine_code": true,
@@ -20,7 +20,7 @@
   "bin_fwr_roundtrip": true,
   "native_ota_hardware_field_verified": true,
   "msp_reserve_bytes": 4096,
-  "static_gap_to_msp_bytes": 764,
+  "static_gap_to_msp_bytes": 4148,
   "link_warning_count": 1035,
   "boot_signature": "FFFFFFFFFFFFFFFF",
   "device_written": false,
@@ -39,7 +39,7 @@
   "sensor_gpio_enabled": true,
   "ota_runtime_validated": false,
   "warning": "Experimental bring-up candidate, not target-boot validated. Recovery debugger required. No direct full-flash writing; no bootloader/factory replacement.",
-  "build_id": "abayoumy-lock",
+  "build_id": "abayoumy-en",
   "watchdog_enabled": true,
   "legacy_relay_timing": false
 }
