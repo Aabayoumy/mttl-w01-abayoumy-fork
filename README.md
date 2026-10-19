@@ -339,9 +339,11 @@ curl -s http://<strip-ip>/api/firmware/status      # expect build_id abayoumy-en
 
 Only the latest build is published. The earlier ids (`abayoumy`, `abayoumy-notimers`,
 `abayoumy-lock`) were intermediate steps on the way to `abayoumy-en`; their logs and manifests are
-not in this repo. `abayoumy-en` is byte-reproducible from the patch series and host-verified, and
-the two strips still run `abayoumy-lock` until it is flashed — it is a superset of that build
-(protection, lock, timers) plus the English-only dashboard.
+not in this repo. `abayoumy-en` is byte-reproducible from the patch series, host-verified and
+flashed to the LivingRoom strip (`10.0.0.53`) on 2026-10-19; the BedRoom strip (`10.0.0.54`, which
+powers the Proxmox host through its `PVE1` outlet) still runs `abayoumy-lock` and is flashed
+deliberately, as a separate step. `abayoumy-en` is a superset of that build (protection, lock,
+timers) plus the English-only dashboard.
 
 ## Home Assistant
 
@@ -363,9 +365,12 @@ lock (buttons, web UI single/ALL, HA single/ALL, timers, schedules) and the time
 unit suite passes **249 checks / 0 failed**, the three dashboard/OTA node tests pass, and applying
 the published patches to a pristine upstream `v2.0.17` reproduces tree
 `49c3ef130d6cf8ff8276f72d5b79bdd229f89703` exactly — the tree the firmware here was built from, with
-the build refusing Korean text in any gzipped asset. `abayoumy-en` is built and host-verified but
-**not yet flashed**: it carries the flashed-and-exercised `abayoumy-lock` behaviour plus the
-English-only dashboard (§7). Raw transcripts and photos are not included in this repository.
+the build refusing Korean text in any gzipped asset. `abayoumy-en` was then flashed to the
+LivingRoom strip (`10.0.0.53`) on 2026-10-19: OTA slot swap, `/api/config` byte-identical, the three
+served UI assets byte-identical to the built ones with **zero Hangul**, and 27 entities still
+announcing. The BedRoom strip (`10.0.0.54`) still runs `abayoumy-lock` — it powers the Proxmox host
+through its `PVE1` outlet, so it is flashed deliberately as a separate step. Raw transcripts and
+photos are not included in this repository.
 
 ## Licence
 

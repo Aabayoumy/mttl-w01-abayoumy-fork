@@ -33,15 +33,16 @@ header language selector are gone; `mttl_settings_default()` now writes `languag
 (English) and the device build refuses Hangul in any gzipped asset. The dictionary and
 the inline pairs were **3,390 B of the gzipped UI** (19,429 → 16,039), so the build
 **`abayoumy-en`** (gap **4148 B**, 330,900 B, UI gzip 16,039 B) is the highest-headroom
-build of the series. It is **built and host-verified, not yet flashed**: both strips
-still run `abayoumy-lock`.
+build of the series. **Flashed to `10.0.0.53` on 2026-10-19** — slot 524288 → 45056, `/api/config`
+byte-identical, served assets byte-identical to the build, 27 entities intact (see *Eighth flash*).
+`10.0.0.54` still runs `abayoumy-lock`: it powers PVE1 and is flashed deliberately.
 
 | | |
 |---|---|
 | Base | shipped series: `main` = `ebfb39d` (`v2.0.15-3-geb...`), tree `b187b492348a082f5fe7aa5d81fb272a9fa5451f`; rebased series: upstream tag `v2.0.17` = `311663e`, tree `420991a99008bf196bf5468e7770c45c4096e7c8` |
 | Branch | `feature/protection-v2`, two lines. **Shipped (2.0.15 base)**, kept as `archive/protection-v2-2.0.15`, tree `b7a0d1f15ce1ab99c2d7b7b489aee501a9de1adb`: `9382e2a` (isolation; builder re-created it as `16c3a2f`), `ec34e41` (trip visibility; builder: `fcbc98e`), `9e8a7e1` (one limit for every outlet; builder: `6ca59da`), `0b7947d` (drop the safety note + named build id; builder: `2106825`), `6ff0735` (timers are not HA entities; builder: `419f225`). **Live (2.0.17 base)**, tree `49c3ef130d6cf8ff8276f72d5b79bdd229f89703`: `fc6338c`, `aa68f78`, `c7e8a5e`, `24a34dd`, `9a05d83`, `cf02922`, `f88dd17` — identical SHAs on both sides, because the builder fetched them from the Mac's bundle rather than replaying the rebase |
 | Patches | **live series** (applies to `v2.0.17`): `patches/0001-per-channel-current-isolation.patch` (71,533 B) + `patches/0002-protection-trip-visibility.patch` (12,427 B) + `patches/0003-current-limit-every-outlet.patch` (35,340 B) + `patches/0004-ui-note-and-build-id.patch` (8,037 B) + `patches/0005-timers-are-not-ha-entities.patch` (30,686 B) + `patches/0006-lock-every-command-path.patch` (41,427 B) + `patches/0007-english-only-dashboard.patch` (132,659 B); archived 2.0.15 series in `patches/2.0.15/`; layout + rebase traps in `patches/README.md` |
-| Artifacts | isolation: `build-linux/mttl-w01-2.0.15-isolation.fwr` 334,388 B `0e436af0…`, build_id `e3787c6fd511f577`; trip sensor: `build-linux/mttl-w01-2.0.15-trip-sensor.fwr` 334,692 B `9c1390b5…`, build_id `b3dba27349ceea73`; limit-per-outlet: `build-linux/mttl-w01-2.0.15-limit-per-outlet.fwr` 334,556 B `404c95ab…`, build_id `57d3230f785990ba`; named build: `build-linux/mttl-w01-2.0.15-abayoumy.fwr` 334,300 B `3499190b…`, build_id `abayoumy`; timers retired: `build-linux/mttl-w01-2.0.15-abayoumy-notimers.fwr` 333,372 B `a61d34a0…`, build_id `abayoumy-notimers`; (2.0.17, never flashed, superseded: `build-linux/mttl-w01-2.0.17-abayoumy.fwr` 333,620 B `90ff0bb5…`, build_id `abayoumy`); (**live on both strips** `build-linux/mttl-w01-2.0.17-abayoumy-lock.fwr` 334,284 B `b65c0e30…`, build_id **`abayoumy-lock`**); English only: `build-linux/mttl-w01-2.0.17-abayoumy-en.fwr` **330,900 B** `afb5fd1b…`, build_id **`abayoumy-en`** (built + host-verified, not flashed) |
+| Artifacts | isolation: `build-linux/mttl-w01-2.0.15-isolation.fwr` 334,388 B `0e436af0…`, build_id `e3787c6fd511f577`; trip sensor: `build-linux/mttl-w01-2.0.15-trip-sensor.fwr` 334,692 B `9c1390b5…`, build_id `b3dba27349ceea73`; limit-per-outlet: `build-linux/mttl-w01-2.0.15-limit-per-outlet.fwr` 334,556 B `404c95ab…`, build_id `57d3230f785990ba`; named build: `build-linux/mttl-w01-2.0.15-abayoumy.fwr` 334,300 B `3499190b…`, build_id `abayoumy`; timers retired: `build-linux/mttl-w01-2.0.15-abayoumy-notimers.fwr` 333,372 B `a61d34a0…`, build_id `abayoumy-notimers`; (2.0.17, never flashed, superseded: `build-linux/mttl-w01-2.0.17-abayoumy.fwr` 333,620 B `90ff0bb5…`, build_id `abayoumy`); (**live on both strips** `build-linux/mttl-w01-2.0.17-abayoumy-lock.fwr` 334,284 B `b65c0e30…`, build_id **`abayoumy-lock`**); English only: `build-linux/mttl-w01-2.0.17-abayoumy-en.fwr` **330,900 B** `afb5fd1b…`, build_id **`abayoumy-en`** (flashed to `10.0.0.53` 2026-10-19; `10.0.0.54` pending) |
 | Manifests | `build-linux/manifest-isolation-e3787c6fd511f577.json`, `build-linux/manifest-trip-b3dba27349ceea73.json`, `build-linux/manifest-57d3230f785990ba.json`, `build-linux/manifest-abayoumy.json`, `build-linux/manifest-abayoumy-notimers.json`, `build-linux/manifest-2.0.17-abayoumy.json`, `build-linux/manifest-2.0.17-abayoumy-lock.json`, `build-linux/manifest-2.0.17-abayoumy-en.json` (plus the per-asset gzip reports `build-linux/ui-assets-2.0.17-abayoumy-lock.json` and `build-linux/ui-assets-2.0.17-abayoumy-en.json`) |
 | Build log | `build-linux/build-0003-limit-per-outlet.log`, `build-linux/build-0004-abayoumy.log`, `build-linux/build-0005-abayoumy-notimers.log`, `build-linux/build-2.0.17-abayoumy.log`, `build-linux/build-2.0.17-abayoumy-lock.log` and `build-linux/build-2.0.17-abayoumy-en.log` (UI asset report, compile log, manifest of each archived build) |
 | Contract run | `build-linux/contract3-js-c-limit-per-outlet/` (script, C harness, transcript; still valid — commits 4 and 5 do not touch the settings codec) |
@@ -781,6 +782,38 @@ So the Korean dictionary and the inline pairs were worth **3,390 B of gzipped UI
 grew from 764 B to 4,148 B — the first real headroom the series has had since the HA limit-control
 surface was measured at ≈1,004 B (see the section below). Flashing this build is the next step; until
 then both strips keep running `abayoumy-lock`.
+
+## Eighth flash: `abayoumy-en` on `10.0.0.53` (2026-10-19) — the English-only dashboard on real hardware
+
+The build whose sources are the seven-commit series was flashed to the LivingRoom strip. Evidence
+folder: `build-linux/preflight8-en-10.0.0.53/` and `build-linux/postflight8-en-10.0.0.53/`
+(`config.json`, `device.json`, `firmware-status.json`, `status.json`, the three served UI assets,
+`ha-entities.txt`, `sha256sums.txt`, `verify.txt`).
+
+* **Upload:** `{"written":true,"activated":true,"rebooting":true}`; the strip answered on the other
+  slot after **20 s** — `build_id: abayoumy-en`, `version: 2.0.17`, `active_slot: 45056` (was
+  524288), `ota_ready: true`, `settings_persistent: true`.
+* **Settings survive unchanged:** `/api/config` is byte-identical to the pre-flash record —
+  `MTTL-LivingRoom`, channels `TV / SBar / SBar / SW 4`, `protection {enabled 7, temperature 80,
+  current 16000, power 3000, channel_current 16000×4}`, `button_lock 0`, timers `0,0,0,0`, and the
+  `language` byte already `1`. No migration ran and nothing was normalised: the same bytes on the
+  same firmware version.
+* **The UI the strip serves is exactly the built one.** Decompressing `/`, `/i18n.js` and `/live.js`
+  off the device gives 15,750 / 2,847 / 30,185 B with sha256 `4d5ef5cd…` / `1561de6547…` /
+  `049cb5a6…` — the same raw bytes and the same shas the build reported, i.e. gzip 4,459 / 1,360 /
+  10,220 B of the 20,000 B budget. **Zero Hangul characters** in anything the device serves,
+  `id="language"` is gone and the document is `<html lang="en">`; the compact dictionary arrives as
+  `MttlI18n={messages:{en:{…}}}` — one table, original key order.
+* **Home Assistant is untouched:** `mttl_9d270aa` announced **27** entities, **0 unavailable**,
+  `sensor.mttl_9d270aa_protection = 0` and `sensor.mttl_9d270aa_lock = none` — the same entity ids,
+  topics and states as before the flash.
+* **`10.0.0.54` was deliberately not flashed.** That strip powers the Proxmox host through its
+  `PVE1` outlet, so it keeps running `abayoumy-lock` until it is flashed on purpose. Both strips now
+  run the same code except for this commit's UI change, and HA sees no difference between them.
+* **Still open on hardware** (unchanged by this commit, both need a *locked* outlet and a load):
+  the 3× LED flash on a refused manual command, and the trip test (limit → 1 A with a ≥220 W load,
+  expecting the two-round trip, only the blamed outlet cut, `channel_mask` naming it, then the
+  sensor going `0` → bit → `0`).
 
 ## HA control surface for the limits — measured, does not fit (decided: not built)
 

@@ -28,7 +28,8 @@ gate, the refusal LED flash, the timer rule and the UI state account for the res
 Third follow-up (2026-10-19, commit 7 `f88dd17`, build `abayoumy-en`): the dashboard is English only.
 The entity list is **unchanged** (still **27** per strip), but dropping the Korean dictionary and the
 inline `ko`/`en` pairs returned **3,390 B** of gzipped UI (19,429 → 16,039), so that build sits at a
-**4,148 B** gap — the most headroom of the series. It is built and host-verified, not yet flashed.
+**4,148 B** gap — the most headroom of the series. It is now flashed on `10.0.0.53` (2026-10-19);
+`10.0.0.54`, which powers PVE1, still runs `abayoumy-lock`.
 
 ## What shipped: option C, trip visibility only (measured 304 B)
 
