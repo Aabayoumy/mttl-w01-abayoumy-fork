@@ -11,7 +11,8 @@ Reproducible build of `af950833/mttl_w01_standalone` on a Linux host.
 (SSH key trusted). Repo clone `~/mttl_fork_check`, tools in `~/mttl-tools`.
 
 The clone's `feature/protection-v2` is the live fork line and currently sits on
-upstream tag **`v2.0.17`** (`311663e`); the `archive/protection-v2-2.0.15` branch
+upstream tag **`v2.1.0`** (`2932fb8`) — ten patches, tree `164b27dc…`; the
+`archive/protection-v2-2.0.15` branch
 keeps the previously shipped line. The recipe below and its numbers are the
 pristine `ebfb39d` (= 2.0.15) baseline and are unaffected by that — see
 `patches/README.md` for the series and `FEATURE-per-channel-current.md` for the

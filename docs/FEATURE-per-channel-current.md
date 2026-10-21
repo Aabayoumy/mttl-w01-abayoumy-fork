@@ -1,9 +1,9 @@
 # Feature: per-channel overcurrent protection, trips isolated to the blamed outlet
 
-Status: **built, host-verified (249 checks), flashed to both strips** —
-LivingRoom `10.0.0.53` and BedRoom `10.0.0.54` (upgraded from `2.0.14`
-in stages), both now reporting the build id **`abayoumy-en`** on upstream
-`2.0.17` — with settings round-trip verified and **no spurious trip on either
+Status: **built, host-verified (265 checks + 4 node tests), flashed to both
+strips** — LivingRoom `10.0.0.53` and BedRoom `10.0.0.54` (upgraded from
+`2.0.14` in stages), both now reporting **`abayoumy-en-ar`** on upstream
+`2.1.0` — with settings round-trip verified and **no spurious trip on either
 strip**. The per-outlet limit is now **automatic** — one current limit covers the
 strip and every outlet — and that behaviour is **live** on both strips; the trip
 *transition* itself has not been exercised on hardware yet. The HA trip-visibility
@@ -26,6 +26,24 @@ commit adds one Home Assistant entity — the lock sensor, **27 entities per str
 19,429 B) is the one that carries it. **Both strips ran `abayoumy-lock`** from the 2026-10-19
 flashes (behaviour exercised over the API, see *Sixth flash*) until `abayoumy-en` replaced it on the
 same day; the lock is unchanged in that build.
+
+**Rebased onto upstream `2.1.0`** (`2932fb8`) on 2026-10-21 — see *Rebase onto
+upstream 2.1.0*. Ten patches (`0001`–`0010`) apply cleanly to the tag and
+reproduce tree `164b27dc885a1dec7e063aa0d5180651ad57fab5`; the host suite passes
+**265 checks / 0 failed** and the four dashboard/OTA/i18n node tests pass. The
+published build **`abayoumy-en-ar`** is 333,520 B, sha256 `86ca2cb9f375a2fa3000230ee882a473a688905e260ac8f9ef74aba47d4d510d`,
+UI gzip **18,735 B** of the 20,000 B cap, link gap **1,476 B**, and rebuilds
+byte-identically. Both strips run it (see *Ninth flash*).
+
+**Egyptian Arabic power pages, English Settings** (`f4b4d05`, `ce49d0c`) —
+the device, protection, scheduler and timer pages are Arabic in Arabic mode;
+Wi-Fi, MQTT, Firmware and Logs stay English in both languages, and the four
+Settings pages are laid out LTR so English is not mirrored. The language is
+the `language` byte of the settings record (no `localStorage`), so every
+browser agrees with the strip. Wi-Fi/MQTT/Firmware/Logs were also grouped
+behind one *Settings* tab with a chip row; the section ids are unchanged.
+Arabic cost 2,696 B of the gzip budget (16,039 → 18,735) and the gap fell from
+4,148 B to 1,476 B.
 
 **The dashboard is English only** (`f88dd17`, 2026-10-19) — see *Commit 7: the
 dashboard drops Korean*. The Korean dictionary, every inline `ko`/`en` pair and the
@@ -239,6 +257,8 @@ overrun fails the link, it cannot corrupt the stack at run time.
 | **rebased onto upstream `2.0.17` (live branch, never flashed — superseded by `abayoumy-lock`)** | **1428** | 333,620 | **19,168** | CT 106 |
 | **lock gates every command path (`cf02922`, flashed on both strips)** | **764** | 334,284 | **19,429** | CT 106 |
 | **English-only dashboard (`f88dd17`, built + host-verified, not flashed)** | **4148** | 330,900 | **16,039** | CT 106 |
+| **English-only dashboard, flashed (`abayoumy-en`)** | **4148** | 330,900 | **16,039** | CT 106 |
+| **2.1.0 + Arabic pages + English Settings (`ce49d0c`, `abayoumy-en-ar`, live on both strips)** | **1476** | 333,520 | **18,735** | CT 106 |
 
 Per-channel current plus isolated cuts cost **960 B** (1620 → 660); the HA trip
 sensor cost another **304 B** (660 → 356). Commit 3 gave **136 B back**
@@ -823,6 +843,58 @@ The build whose sources are the seven-commit series was flashed to the LivingRoo
   expecting the two-round trip, only the blamed outlet cut, `channel_mask` naming it, then the
   sensor going `0` → bit → `0`). `10.0.0.54` already has outlet 1 locked, but that outlet feeds the
   Proxmox host — exercise these on another outlet.
+
+## Rebase onto upstream 2.1.0 (2026-10-21) — ten patches, tree `164b27d…`
+
+Upstream 2.1.0 (`2932fb8`) is the release that replaced the two 4 KiB settings sectors with a
+128-record append journal, moved the energy flush to hourly, and taught OTA to stop a slot-A image at
+`0x70000` so it can never erase the journal. The fork's seven commits rebased without conflict; three
+more were added on top:
+
+| patch | commit | what it does |
+|---|---|---|
+| `0008-arabic-main-page-device-language` | `f4b4d05` | Egyptian Arabic for the main page; the language moves from `localStorage` into the settings record |
+| `0009-settings-import-legacy-record` | `98d6fae` | one-time import of the 2.0.x v8 record into the 2.1.0 journal, then erases both legacy sectors |
+| `0010-settings-tab-arabic-pages` | `ce49d0c` | one Settings tab with a chip row; Arabic for the power pages, English and LTR for the Settings group |
+
+`git am patches/00*.patch` on a clean `v2.1.0` checkout reproduces tree
+`164b27dc885a1dec7e063aa0d5180651ad57fab5`; the host suite passes **265 checks / 0 failed** and the
+four node tests (dashboard loading, i18n contract, OTA panel, OTA reconnect) pass. The build
+**`abayoumy-en-ar`** is **333,520 B**, sha256 `86ca2cb9…`, UI gzip **18,735 B**
+(4,784 + 3,965 + 9,986) and link gap **1,476 B**; rebuilding it produced the identical sha256.
+
+Two test changes pinned the new language contract: Arabic keys must be a subset of the English table,
+every Arabic value must contain Arabic script, and **no Settings key may have an Arabic value** —
+English is what those panels fall back to. The device build prunes to what the assets reference, so
+171 English keys and 103 Arabic keys actually ship.
+
+## Ninth flash: `abayoumy-en-ar` on both strips (2026-10-21) — Arabic pages, English Settings
+
+BedRoom (`10.0.0.54`) first, then LivingRoom (`10.0.0.53`), which was still on **2.0.17** — so this
+flash also exercised the `0009` legacy import on real hardware for the first time.
+
+* **`10.0.0.54`** — upload `{"written":true,"activated":true,"rebooting":true}`, answering again
+  after **15 s**; `active_slot` 524288 → **45056**, `version 2.1.0`, `build_id abayoumy-en-ar`,
+  `settings_persistent: true`. `/api/config` is **byte-identical** to its pre-flash record
+  (`sha256 80f7f374…`), `language: 2`.
+* **`10.0.0.53`** — the same upload reply, back after **12 s**, `active_slot` 524288 → **45056**. It
+  came from `2.0.17`, so the record had to be imported: **all 28 configuration fields came through
+  identical** — `MTTL-LivingRoom`, channels `TV / SBar / SBar / SW 4`, `protection {enabled 7,
+  temperature 80, current 16000, power 3000, channel_current 16000×4}`, `button_lock 0`, broker
+  `10.0.0.11:1883`, both password flags set, `language: 1`, energy counters included. The import
+  erases both legacy sectors, so it cannot run twice.
+* **The UI each strip serves is exactly the built one** — `/` 17,077 B `c176f77c…` (gzip 4,784),
+  `/i18n.js` 10,546 B `c1070420…` (gzip 3,965), `/live.js` 30,142 B `e6ec1faa…` (gzip 9,986). The
+  only Arabic left in the served HTML is the `العربية` label on the language button; the Settings chip
+  row and its four panels ship as English strings.
+* **Home Assistant:** `mttl_941678b` and `mttl_9d270aa` announced **27 entities each, 0
+  unavailable** — `protection = 0` on both, `lock = 1` on BedRoom and `lock = none` on LivingRoom.
+  The entities a strip re-announced right after the reboot stayed `unavailable` for ~25 s and then
+  all recovered.
+* **Language behaviour on hardware** — `10.0.0.54` (Arabic): the device page is Arabic with Western
+  digits (`81.760 W`, `4.834 kWh`, `219.3 V`), protection/scheduler/timer are Arabic, and all four
+  Settings panels (chips, labels, hints, log lines, OTA panel) are English and left-to-right;
+  `10.0.0.53` (English): everything English.
 
 ## HA control surface for the limits — measured, does not fit (decided: not built)
 

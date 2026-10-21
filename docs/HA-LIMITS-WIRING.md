@@ -32,6 +32,13 @@ inline `ko`/`en` pairs returned **3,390 B** of gzipped UI (19,429 → 16,039), s
 `10.0.0.53` first, then `10.0.0.54`); on the BedRoom strip the `PVE1` outlet never dropped during
 the OTA reboot, so the Proxmox host it feeds stayed up with an unbroken uptime.
 
+Fourth follow-up (2026-10-21, commits `f4b4d05` + `ce49d0c`, build `abayoumy-en-ar`): upstream
+`2.1.0` plus the Arabic dashboard and one Settings tab. The entity list is **unchanged again**
+(**27** per strip, same ids, topics and payloads), so nothing in this document changes for a strip
+running it. The Arabic pages cost 2,696 B of the gzipped UI (16,039 → 18,735 of the 20,000 B cap), so
+the gap is **1,476 B**. It is live on both strips since 2026-10-21 — `10.0.0.53` was still on 2.0.17
+and kept every setting through the one-time legacy import.
+
 ## What shipped: option C, trip visibility only (measured 304 B)
 
 The one thing HA is genuinely better at here is **telling you something was cut**.
@@ -43,7 +50,9 @@ gap **1676 B**). The patch series has since been rebased onto upstream `2.0.17`
 (`311663e`, the dashboard-loading/post-OTA-reconnect release) without touching any
 of this — same entity, same topic, same table — and that build (`abayoumy`) has a
 **1428 B** gap. `abayoumy-lock` (commit 6, live on both strips since 2026-10-19)
-adds the lock sensor and sits at **764 B**.
+adds the lock sensor and sits at **764 B**. The series is now based on upstream
+`2.1.0` (`2932fb8`) — journal-based settings, hourly energy flush — with the same
+entity contract; `abayoumy-en-ar` leaves **1476 B**.
 
 | | |
 |---|---|
@@ -198,6 +207,7 @@ verified clean) the real gap comes out as:
 | rebased onto upstream `2.0.17` — `abayoumy` (never flashed, superseded) | **1428** left |
 | lock build, now live on both strips — `abayoumy-lock` | **764** left |
 | English-only dashboard — `abayoumy-en` (built, not flashed) | **4148** left |
+| Arabic pages + English Settings on upstream 2.1.0 — `abayoumy-en-ar` (live on both strips) | **1476** left |
 
 Rough split of the 1,004 B, from the diff and the build log (estimates, ±20 %):
 discovery branch + literals ≈ 275, command parser ≈ 300, engine dispatch +
@@ -269,6 +279,10 @@ UI text away and leaves zero slack; **E** is the safe default.
   entity list does not change (**27** per strip), but the freed gzipped UI moved the gap from 764 B
   to **4,148 B**, so the parked limit-control surface (≈1,004 B) would fit again if it were ever
   wanted.
+* Done, 2026-10-21 (commits `f4b4d05` + `ce49d0c`, build `abayoumy-en-ar`, upstream `2.1.0`): the
+  dashboard gained Egyptian Arabic pages and one Settings tab. Entity list unchanged (**27** per
+  strip), gap **1,476 B** — the limit-control surface (≈1,004 B) still would not fit, because the
+  Arabic pages took 2,696 B of the budget back.
 * Still unbuilt, if ever wanted:
   * **HA control of the limits** (options B/D) — parked on `wip/ha-limit-entities`,
     does not fit today: ~1,004 B discovery-and-command version (link failure) or

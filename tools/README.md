@@ -114,7 +114,12 @@ python3 tools/strip-config-write.py 10.0.0.53 --show                 # read only
 python3 tools/strip-config-write.py 10.0.0.53 --lock 8               # lock outlet 4
 python3 tools/strip-config-write.py 10.0.0.53 --timers 0,0,0,30      # 30 min on outlet 4
 python3 tools/strip-config-write.py 10.0.0.53 --lock 0 --timers 0,0,0,0
+python3 tools/strip-config-write.py 10.0.0.54 --language 2      # Egyptian Arabic pages
 ```
+
+`--language` is the dashboard language stored in the settings record: `1` English, `2` Egyptian
+Arabic (the power pages are Arabic either way only if the record says `2`; the Settings group is
+English in both). It changes nothing else in the record.
 
 Exit status 0 means the device read back what was asked for. **Exit 1 with
 "NOT confirmed" is not necessarily a failure**: a timer aimed at a locked outlet

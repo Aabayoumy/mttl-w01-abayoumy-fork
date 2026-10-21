@@ -1,0 +1,330 @@
+diff --git a/source/standalone/build_assets.py b/source/standalone/build_assets.py
+index 85d9356..a102d3d 100644
+--- a/source/standalone/build_assets.py
++++ b/source/standalone/build_assets.py
+@@ -74,14 +74,17 @@ sources[0]=('/', 'text/html; charset=utf-8',html.encode())
+ messages=json.loads(subprocess.check_output(['node','-e',
+     'console.log(JSON.stringify(require(process.argv[1]).messages))',
+     str(ROOT/'standalone/ui/i18n.js')],text=True,encoding='utf-8'))
+-assert set(messages)=={'en'},'The dashboard ships English only'
++assert 'en' in messages and set(messages)<={'en','ar'},'Unexpected dashboard language table'
+ # The broad literal-key scan also sees element IDs such as 'scan'/'online'.
+ # Those are not calls to preview translations; explicitly exclude their text.
+ preview_keys={'title','simulation','note','online','hold','holdHint','scan','connect','saveMock','enabled','wifiConnected','firmwareHint','updateMock','progressLabel','firmwareStep2','firmwareStep3','inspectionPassed','uploading','rechecking','rebooting','updateComplete','log_started','log_wifi','log_fwComplete','deviceIntegration','liveNote'}
+-messages={'en':{key:value for key,value in messages['en'].items() if key not in preview_keys}}
++messages={name:{key:value for key,value in table.items() if key not in preview_keys} for name,table in messages.items()}
+ used='\n'.join(data.decode('utf-8') for path,kind,data in sources if path!='/i18n.js')
+-messages={'en':{key:value for key,value in messages['en'].items() if any(quote+key+quote in used for quote in ('"',"'")) or key.startswith('netState')}}
+-compact='globalThis.MttlI18n={messages:'+json.dumps(messages,ensure_ascii=False,separators=(',',':'))+',text:(language,key,args={})=>{const value=MttlI18n.messages.en[key];if(value===undefined)throw Error("Missing translation: "+key);return value.replace(/\\{(\\w+)\\}/g,(_,name)=>String(args[name]??""));}};'
++messages={name:{key:value for key,value in table.items() if any(quote+key+quote in used for quote in ('"',"'")) or key.startswith('netState')} for name,table in messages.items()}
++assert set(messages['ar'])<=set(messages['en']),'Arabic key without an English fallback'
++assert all(value.strip() for table in messages.values() for value in table.values()),'Empty dashboard string'
++assert all(re.search(r'[\u0600-\u06ff]',value) for value in messages['ar'].values()),'Arabic table entry left in English'
++compact='globalThis.MttlI18n={messages:'+json.dumps(messages,ensure_ascii=False,separators=(',',':'))+',text:(language,key,args={})=>{const table=globalThis.MttlI18n.messages[language]||globalThis.MttlI18n.messages.en,value=table[key]!==undefined?table[key]:globalThis.MttlI18n.messages.en[key];if(value===undefined)throw Error("Missing translation: "+key);return value.replace(/\\{(\\w+)\\}/g,(_,name)=>String(args[name]??""));}};'
+ sources=[(path,kind,compact.encode() if path=='/i18n.js' else data) for path,kind,data in sources]
+ lines=['/* Generated gzip UI assets. Do not edit by hand. */','#include <stddef.h>',
+        'typedef struct { const char *path,*type; const unsigned char *data; size_t size; } mttl_asset;']
+diff --git a/source/standalone/firmware/settings.c b/source/standalone/firmware/settings.c
+index fa4e278..75fcbc5 100644
+--- a/source/standalone/firmware/settings.c
++++ b/source/standalone/firmware/settings.c
+@@ -32,8 +32,9 @@ int mttl_settings_utf8(const char *s,size_t cap){return s&&cap&&utf8(s,cap,0);}
+ void mttl_settings_default(mttl_settings *s){
+     size_t i;const char name[]="MTTL-W01";unsigned char *p=(unsigned char *)s;
+     for(i=0;i<sizeof(*s);i++)p[i]=0;
+-    /* The dashboard ships English only, so a fresh record starts English. A
+-     * stored 0 (Korean) stays valid and readable: it still renders English. */
++    /* 1 = English, 2 = Egyptian Arabic; 0 is the retired Korean byte and still
++     * reads as English. The dashboard falls back to English for any untranslated
++     * string, so every accepted value renders a complete page. */
+     s->language=1;
+     for(i=0;i<sizeof(name);i++)s->device[i]=name[i];
+     for(i=0;i<4;i++){s->channel[i][0]='S';s->channel[i][1]='W';s->channel[i][2]=' ';s->channel[i][3]=(char)('1'+i);}
+@@ -42,7 +43,7 @@ void mttl_settings_default(mttl_settings *s){
+     mttl_schedule_default(&s->schedule);
+ }
+ int mttl_settings_valid(const mttl_settings *s){
+-    size_t i,n,k;if(!s||s->language>1||s->mqtt_enabled>1||s->button_lock>15||!s->port||s->energy_valid>15||!mttl_protection_valid(&s->protection)||!mttl_schedule_valid(&s->schedule))return 0;
++    size_t i,n,k;if(!s||s->language>2||s->mqtt_enabled>1||s->button_lock>15||!s->port||s->energy_valid>15||!mttl_protection_valid(&s->protection)||!mttl_schedule_valid(&s->schedule))return 0;
+     for(i=0;i<4;i++){if(s->energy_raw[i]>0xffffffu||s->energy_wh[i]>0x7fffffffu||s->timer_minutes[i]>1440)return 0;
+       /* An auto-off timer needs a channel the lock leaves switchable: a locked
+        * outlet refuses every command, its own timer included, so an armed timer
+diff --git a/source/standalone/host_test/protection_settings_test.c b/source/standalone/host_test/protection_settings_test.c
+index d501bc3..0660284 100644
+--- a/source/standalone/host_test/protection_settings_test.c
++++ b/source/standalone/host_test/protection_settings_test.c
+@@ -186,6 +186,17 @@ static void test_settings_v8(void){
+     /* Wire-format pin: 5 header + 11 length prefixes + 28 string bytes + v8 tail. */
+     CHECK(n==118);
+     CHECK(body[0]==8);
++    /* Language byte: 1 = English (default), 2 = Egyptian Arabic, 3 is invalid. */
++    CHECK(body[1]==1);
++    a.language=2;
++    n=mttl_settings_pack(&a,body,sizeof(body));
++    CHECK(n==118&&body[1]==2&&mttl_settings_unpack(body,n,&b)&&b.language==2);
++    a.language=0;
++    n=mttl_settings_pack(&a,body,sizeof(body));
++    CHECK(n==118&&body[1]==0&&mttl_settings_unpack(body,n,&b)&&b.language==0);
++    a.language=3;
++    CHECK(!mttl_settings_pack(&a,body,sizeof(body)));
++    mttl_settings_default(&a);
+     CHECK(mttl_settings_unpack(body,n,&b));
+     CHECK(same_protection(&a.protection,&b.protection));
+     CHECK(b.protection.enabled==7&&b.protection.channel_current_ma[2]==16000);
+diff --git a/source/standalone/tests/test_i18n.cjs b/source/standalone/tests/test_i18n.cjs
+new file mode 100644
+index 0000000..d2fcf62
+--- /dev/null
++++ b/source/standalone/tests/test_i18n.cjs
+@@ -0,0 +1,18 @@
++'use strict';
++/* English is the complete table; Egyptian Arabic covers the main page only and
++ * must fall back to English for every other key. The device build prunes both
++ * tables by the same literal-key scan, so a key used in an asset must resolve
++ * in the selected language. */
++const assert=require('assert');
++const i18n=require('../ui/i18n.js');
++const {en,ar}=i18n.messages;
++let checks=0;
++function check(name,fn){fn();checks++;}
++check('tables',()=>{assert.ok(en&&ar);assert.ok(Object.keys(en).length>Object.keys(ar).length);});
++check('arabic is a subset of english',()=>{for(const key of Object.keys(ar))assert.ok(key in en,'missing en key '+key);});
++check('every arabic entry is translated',()=>{for(const [key,value] of Object.entries(ar))assert.ok(/[\u0600-\u06ff]/.test(value),'untranslated '+key);});
++check('selects by language',()=>{assert.equal(i18n.text('ar','totalPower'),'القدرة الكلية');assert.equal(i18n.text('en','totalPower'),'Total Power');});
++check('falls back to english',()=>{assert.equal(i18n.text('ar','protection'),'Protection');assert.equal(i18n.text('xx','voltage'),'Voltage');assert.equal(i18n.text(undefined,'uptime'),'Uptime');});
++check('interpolation',()=>{assert.equal(i18n.text('ar','channelName',{number:3}),'اسم القناة 3');assert.equal(i18n.text('en','channelName',{number:3}),'Channel 3 name');});
++check('unknown key throws',()=>{assert.throws(()=>i18n.text('ar','nope'),/Missing translation/);});
++console.log(JSON.stringify({passed:true,checks,scope:'English/Arabic tables, fallback, interpolation'}));
+diff --git a/source/standalone/ui/i18n.js b/source/standalone/ui/i18n.js
+index e0b04fe..a1a0c20 100644
+--- a/source/standalone/ui/i18n.js
++++ b/source/standalone/ui/i18n.js
+@@ -1,6 +1,8 @@
+-/* Dashboard strings: English only, one language by design.
+- * text(language,key,args) keeps its three-argument shape so existing call sites
+- * stay valid; the language argument is ignored. */
++/* Dashboard strings. English is the complete table and the fallback; Egyptian
++ * Arabic covers the main "Power strip" page only. The selected language is
++ * stored in the device settings record (set via /api/config), never in the
++ * browser, so every client shows the same one until it is changed on the device.
++ * text(language,key,args) falls back to English for keys with no translation. */
+ (function(root){
+   'use strict';
+   const en={
+@@ -145,11 +147,74 @@
+     scheduler:'Scheduler',
+     timer:'Timer',
+     saveDevice:'Save to device',
++    timerShort:'Timer',
++    stateOn:'ON',
++    stateOff:'OFF',
++    statePartial:'PARTIAL',
++    lockTitleOn:'Locked: this outlet ignores the buttons, the web UI, Home Assistant, its timer and the schedules',
++    lockTitleOff:'Unlocked: every control can switch this outlet',
++    nameSavedFlash:'Saved in device flash',
++    nameSaveFailed:'Device save failed',
+     };
+-  const api={messages:{en},text:(language,key,args={})=>{
+-    const message=en[key];
+-    if(message===undefined)throw Error('Missing translation: '+key);
+-    return message.replace(/\{(\w+)\}/g,(_,name)=>String(args[name]??''));
++  /* Egyptian Arabic (colloquial Cairene). Only the main page is translated;
++   * everything else intentionally falls back to English. */
++  const ar={
++    device:'المشترك',
++    deviceDefault:'مشترك الصالة',
++    channelOneDefault:'مروحة الصالة',
++    channelDefault:'قناة {number}',
++    rename:'تعديل الأسماء',
++    editChannel:'تعديل اسم القناة {number}',
++    nameSettings:'أسماء المشترك والقنوات',
++    deviceName:'اسم المشترك',
++    channelName:'اسم القناة {number}',
++    nameHint:'الأسماء بتتحفظ لما تدوس حفظ. كل اسم لحد 64 بايت UTF-8.',
++    saveNames:'حفظ الأسماء',
++    cancel:'إلغاء',
++    nameInvalid:'اكتب اسم للمشترك وكل قناة. الاسم لازم يكون في حدود 64 بايت UTF-8 ومن غير حروف تحكم.',
++    namesSaved:'الأسماء اتحفظت.',
++    connection:'الاتصال',
++    currentTime:'الوقت الحالي',
++    recentConnection:'آخر اتصال',
++    uptime:'مدة التشغيل',
++    seconds:'{count} ث',
++    duration:'{days} يوم {hours} ساعة {minutes} دقيقة {seconds} ثانية',
++    totalPower:'القدرة الكلية',
++    meter:'العداد',
++    voltage:'الجهد',
++    totalCurrent:'التيار الكلي',
++    all:'الكل',
++    partial:'جزئي',
++    power:'القدرة',
++    channelMeter:'العداد',
++    current:'التيار',
++    temperature:'الحرارة',
++    turnOff:'طفّي',
++    turnOn:'شغّل',
++    allOn:'تشغيل الكل',
++    allOff:'إطفاء الكل',
++    netState0:'متوقف',
++    netState1:'بيتوقف',
++    netState2:'وضع الإعداد',
++    netState3:'بيتصل',
++    netState4:'بياخد IP',
++    netState5:'متصل',
++    netState6:'عطل',
++    apiUnavailable:'مفيش رد',
++    timerShort:'التايمر',
++    stateOn:'شغال',
++    stateOff:'مطفي',
++    statePartial:'جزئي',
++    lockTitleOn:'مقفول: المخرج ده مش بيتحكم فيه من الأزرار ولا الويب ولا Home Assistant ولا التايمر ولا الجدولة',
++    lockTitleOff:'مفتوح: كل وسائل التحكم تقدر تشغل المخرج ده',
++    nameSavedFlash:'اتحفظ في فلاشة الجهاز',
++    nameSaveFailed:'الحفظ في الجهاز فشل',
++    };
++  const messages={en,ar};
++  const api={messages,text:(language,key,args={})=>{
++    const table=messages[language]||en,value=table[key]!==undefined?table[key]:en[key];
++    if(value===undefined)throw Error('Missing translation: '+key);
++    return value.replace(/\{(\w+)\}/g,(_,name)=>String(args[name]??''));
+   }};
+   if(typeof module==='object'&&module.exports)module.exports=api;else root.MttlI18n=api;
+ })(globalThis);
+diff --git a/source/standalone/ui/index.html b/source/standalone/ui/index.html
+index 7126d43..6a7e5fb 100644
+--- a/source/standalone/ui/index.html
++++ b/source/standalone/ui/index.html
+@@ -18,8 +18,10 @@
+   #timer-editor>button{justify-self:center;width:auto;min-width:140px}#timer-editor>.name-editor>b{display:block;text-align:center}#timer-editor .row label{text-align:center}#timer-editor .row input{text-align:right}
+   #log{height:600px}
+   @media(max-width:900px){#timer-editor{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:480px){#timer-editor{grid-template-columns:1fr}}
++  .header-tools button{background:transparent;border-color:#334155;color:#fff;font-size:12px;padding:6px 10px;font-weight:600}
++  #device[dir=rtl] input{text-align:right}#device[dir=rtl] .sensor b,#device[dir=rtl] .summary b{direction:ltr}#device[dir=rtl] .time{unicode-bidi:plaintext}
+ </style>
+-<header><h1>MTTL-W01</h1><div class="header-tools"><span class="badge" data-i18n="simulation">PC simulation</span></div></header>
++<header><h1>MTTL-W01</h1><div class="header-tools"><span class="badge" data-i18n="simulation">PC simulation</span><button id="language" type="button" hidden>العربية</button></div></header>
+ <main>
+   <p class="note" data-i18n="note">A preview of controls and setup. Values are simulated; this page does not connect to a power strip, Wi-Fi or MQTT.</p>
+   <nav role="tablist" aria-label="Menu" data-i18n-aria="menu">
+diff --git a/source/standalone/ui/live.js b/source/standalone/ui/live.js
+index 5f5a235..f48ed14 100644
+--- a/source/standalone/ui/live.js
++++ b/source/standalone/ui/live.js
+@@ -3,6 +3,7 @@
+   'use strict';
+   const el=id=>document.getElementById(id),key='mttl.preview.display.v1';
+   let preferences={},snapshot=null,deviceSnapshot=null,configuration=null,composing=false,wifiMessage=null,controlBusy=false;
++  let lang='en';
+   let events=null,eventConnected=false;
+   let relaySnapshot=null;
+   function applyRelay(){if(!relaySnapshot||!deviceSnapshot)return;deviceSnapshot.channels.forEach((c,i)=>{c.on=relaySnapshot.known&(1<<i)?!!(relaySnapshot.on&(1<<i)):null;});if(relaySnapshot.fault)deviceSnapshot.hardware_ready=false;}
+@@ -16,7 +17,7 @@
+     const now=(snapshot.uptime_ms+Date.now()-statusAt)>>>0,left=Math.max(0,(deviceSnapshot.timer_end[i]-now)|0),s=Math.ceil(left/1000);
+     return [Math.floor(s/3600),Math.floor(s/60)%60,s%60].map(v=>String(v).padStart(2,'0')).join(':');
+   }
+-  function drawTimers(){channelNodes.forEach((n,i)=>{n.timerLabel.textContent=t('timer');n.timer.textContent=timerText(i);});timerEditor.show(Array.from({length:4},(_,i)=>t('timer')+' '+timerText(i)));}
++  function drawTimers(){channelNodes.forEach((n,i)=>{n.timerLabel.textContent=t('timerShort');n.timer.textContent=timerText(i);});timerEditor.show(Array.from({length:4},(_,i)=>t('timer')+' '+timerText(i)));}
+   function timerClock(){drawTimers();setTimeout(timerClock,999);}
+   const lockPending=new Set();let lockTail=Promise.resolve();
+   async function toggleLock(i){
+@@ -40,7 +41,7 @@
+     if(lastObserved){
+       if(current.available!==lastObserved.available)logEvent(current.available?'Device API recovered':'Device API unavailable');
+       if(current.available&&lastObserved.available&&current.uptime<lastObserved.uptime)logEvent('Device reboot observed');
+-      if(Number.isInteger(current.network)&&current.network!==lastObserved.network)logEvent('Wi-Fi state: '+MttlI18n.text('en','netState'+current.network));
++      if(Number.isInteger(current.network)&&current.network!==lastObserved.network)logEvent('Wi-Fi state: '+t('netState'+current.network));
+       if(Number.isInteger(current.mqtt)&&current.mqtt!==lastObserved.mqtt)logEvent('MQTT state code: '+current.mqtt);
+       if(current.on&&lastObserved.on)current.on.forEach((on,i)=>{if(typeof on==='boolean'&&on!==lastObserved.on[i])logEvent('Channel '+(i+1)+' confirmed state: '+(on?'ON':'OFF'));});
+     }else if(current.available)logEvent('Device state observation started');
+@@ -56,7 +57,14 @@
+     events.addEventListener('device',event=>{try{const d=JSON.parse(event.data);if(!Array.isArray(d.channels)||d.channels.length!==4)throw Error('Device');deviceSnapshot=d;applyRelay();render();}catch(_){eventConnected=false;}});
+   }
+   try{preferences=JSON.parse(localStorage.getItem(key)||'{}');}catch(_){preferences={};}
+-  const t=(name,args={})=>MttlI18n.text('en',name,args);
++  const t=(name,args={})=>MttlI18n.text(lang,name,args);
++  function applyLanguage(){
++    const ar=lang==='ar';
++    document.documentElement.lang=ar?'ar':'en';
++    const panel=el('device');if(panel)panel.dir=ar?'rtl':'ltr';
++    const button=el('language');if(button){button.hidden=!configuration;button.textContent=ar?'English':'العربية';button.setAttribute('aria-label',ar?'Switch to English':'التبديل إلى العربية');}
++  }
++  function setLanguage(next){lang=next==='ar'?'ar':'en';applyLanguage();translate();}
+   function save(){try{localStorage.setItem(key,JSON.stringify(preferences));}catch(_){}}
+   function goodName(v){return typeof v==='string'&&v.trim()&&new TextEncoder().encode(v.trim()).length<=64&&!/[\x00-\x1f\x7f]/.test(v);}
+   function name(i){const actual=i<0?deviceSnapshot?.name:deviceSnapshot?.channels?.[i]?.name;const value=actual||(i<0?preferences.deviceName:preferences.channelNames?.[i]);return goodName(value)?value:t(i<0?'deviceDefault':i===0?'channelOneDefault':'channelDefault',{number:i+1});}
+@@ -64,7 +72,8 @@
+   function settingsBody(c,password=''){
+     const port=Number(c.port);if(!Number.isInteger(port)||port<1||port>65535)throw Error('Port');
+     const fields=[c.device,...c.channels,'','',c.broker,c.user,password,c.topic];if(fields.length!==11)throw Error('Channels');
+-    const bytes=[8,1,c.enabled?1:0,port&255,port>>>8];const limits=[64,64,64,64,64,32,64,253,64,64,64];
++    const language=Number.isInteger(c.language)&&c.language>=0&&c.language<=2?c.language:1;
++    const bytes=[8,language,c.enabled?1:0,port&255,port>>>8];const limits=[64,64,64,64,64,32,64,253,64,64,64];
+     fields.forEach((field,i)=>{const data=new TextEncoder().encode(field||'');if(data.length>limits[i])throw Error('Length');bytes.push(data.length,...data);});
+     const p=c.protection||{enabled:7,temperature:90,current:16000,power:3000};
+     if(!Number.isInteger(p.enabled)||p.enabled<0||p.enabled>15||!Number.isInteger(p.temperature)||p.temperature<50||p.temperature>90||!Number.isInteger(p.current)||p.current<1000||p.current>16000||!Number.isInteger(p.power)||p.power<100||p.power>3000)throw Error('Protection');
+@@ -76,7 +85,7 @@
+     for(let i=0;i<4;i++)bytes.push(p.current&255,p.current>>>8);
+     return Uint8Array.from(bytes);
+   }
+-async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(snapshot?.state))throw Error('Not ready');const body=settingsBody(c,password);try{try{await request('/api/config',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-MTTL-Keep-Password':keep?'1':'0'},body});}catch(_){/* A lost POST response does not prove the write failed. Never repost. */}for(let n=0;n<12;n++){await new Promise(resolve=>setTimeout(resolve,250));let saved;try{saved=await request('/api/config');}catch(_){continue;}if(saved.persistent&&(saved.button_lock||0)===(c.button_lock||0)&&saved.device===c.device&&JSON.stringify(saved.channels)===JSON.stringify(c.channels)&&saved.language===1&&(!c.timer_minutes||JSON.stringify(saved.timer_minutes)===JSON.stringify(c.timer_minutes))&&saved.broker===c.broker&&saved.port===c.port&&saved.user===c.user&&saved.enabled===c.enabled&&(!c.schedule_hex||saved.schedule_hex===c.schedule_hex)&&(!c.protection||['enabled','temperature','current','power'].every(k=>saved.protection?.[k]===c.protection[k]))){configuration=saved;return true;}}throw Error('Flash save not confirmed');}finally{body.fill(0);}}
++async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(snapshot?.state))throw Error('Not ready');const body=settingsBody(c,password);try{try{await request('/api/config',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-MTTL-Keep-Password':keep?'1':'0'},body});}catch(_){/* A lost POST response does not prove the write failed. Never repost. */}for(let n=0;n<12;n++){await new Promise(resolve=>setTimeout(resolve,250));let saved;try{saved=await request('/api/config');}catch(_){continue;}if(saved.persistent&&(saved.button_lock||0)===(c.button_lock||0)&&saved.device===c.device&&JSON.stringify(saved.channels)===JSON.stringify(c.channels)&&saved.language===(c.language??1)&&(!c.timer_minutes||JSON.stringify(saved.timer_minutes)===JSON.stringify(c.timer_minutes))&&saved.broker===c.broker&&saved.port===c.port&&saved.user===c.user&&saved.enabled===c.enabled&&(!c.schedule_hex||saved.schedule_hex===c.schedule_hex)&&(!c.protection||['enabled','temperature','current','power'].every(k=>saved.protection?.[k]===c.protection[k]))){configuration=saved;return true;}}throw Error('Flash save not confirmed');}finally{body.fill(0);}}
+   function loadProtection(){const p=configuration?.protection||{},e=Number.isInteger(p.enabled)?p.enabled:7;
+     ['temperature','current','power'].forEach((k,i)=>{const v=Number.isInteger(p[k])?p[k]:{temperature:90,current:16000,power:3000}[k];el('protect-'+k).value=String(k==='current'?v/1000:v);el('protect-'+k+'-enabled').checked=!!(e&(1<<i));});
+     protectionValues();}
+@@ -114,17 +123,17 @@ async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(sn
+       channelNodes[i]={title,pencil,button,sensors,lock,timer,timerLabel};
+       }
+       const node=channelNodes[i];node.title.textContent=name(i);node.pencil.setAttribute('aria-label',t('editChannel',{number:i+1}));
+-      const locked=!!((configuration?.button_lock||0)&(1<<i));node.lock.textContent=locked?'🔒':'🔓';node.lock.title=locked?'Locked: this outlet ignores the buttons, the web UI, Home Assistant, its timer and the schedules':'Unlocked: every control can switch this outlet';node.lock.setAttribute('aria-label',node.lock.title);node.lock.setAttribute('aria-pressed',String(locked));node.lock.disabled=lockPending.has(i)||!configuration||![2,5].includes(snapshot?.state);
++      const locked=!!((configuration?.button_lock||0)&(1<<i));node.lock.textContent=locked?'🔒':'🔓';node.lock.title=locked?t('lockTitleOn'):t('lockTitleOff');node.lock.setAttribute('aria-label',node.lock.title);node.lock.setAttribute('aria-pressed',String(locked));node.lock.disabled=lockPending.has(i)||!configuration||![2,5].includes(snapshot?.state);
+       for(const sensor of node.sensors){sensor.text.textContent=t(sensor.label);const value=reading(deviceSnapshot?.channels?.[i]?.[sensor.field],sensor.scale,sensor.unit);if(sensor.value.textContent!==value)sensor.value.textContent=value;}
+       node.button.disabled=pendingChannels.has(i)||pendingChannels.has(4)||locked||!deviceSnapshot?.hardware_ready||!snapshot?.hardware_ready||snapshot?.state!==5;
+-      const on=optimistic.has(i)?optimistic.get(i):deviceSnapshot?.channels?.[i]?.on,value=on===true?'ON':on===false?'OFF':'Turn on';if(node.button.textContent!==value)node.button.textContent=value;
++      const on=optimistic.has(i)?optimistic.get(i):deviceSnapshot?.channels?.[i]?.on,value=on===true?t('stateOn'):on===false?t('stateOff'):t('turnOn');if(node.button.textContent!==value)node.button.textContent=value;
+       const style=on===true?'switch is-on':'switch';if(node.button.className!==style)node.button.className=style;
+     }
+     drawTimers();
+     const states=Array.from({length:4},(_,i)=>optimistic.has(i)?optimistic.get(i):deviceSnapshot?.channels?.[i]?.on);
+-    const all=snapshot?.state===5&&states.every(on=>typeof on==='boolean')?(states.every(Boolean)?'ON':states.some(Boolean)?'PARTIAL':'OFF'):'—';
++    const all=snapshot?.state===5&&states.every(on=>typeof on==='boolean')?(states.every(Boolean)?t('stateOn'):states.some(Boolean)?t('statePartial'):t('stateOff')):'—';
+     const values=[reading(deviceSnapshot?.power_mw,1000,'W'),reading(deviceSnapshot?.meter_wh,1000,'kWh'),reading(deviceSnapshot?.voltage_dv,10,'V'),reading(deviceSnapshot?.current_ma,1000,'A'),all];document.querySelectorAll('.summary b').forEach((node,i)=>node.textContent=values[i]);
+-    const date=value=>Number.isSafeInteger(value)&&value>0?new Date(value).toLocaleString('en-US'):'—';
++    const date=value=>Number.isSafeInteger(value)&&value>0?new Date(value).toLocaleString(lang==='ar'?'ar-EG-u-nu-latn':'en-US'):'—';
+     el('mac').textContent=/^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(snapshot?.mac||'')?snapshot.mac:'—';el('clock').textContent=date(snapshot?.unix_ms);el('connected').textContent=date(snapshot?.connected_unix_ms);
+     el('online').textContent=snapshot?t('netState'+snapshot.state):t('apiUnavailable');
+     const ip=snapshot?.ip;el('ip').textContent=Number.isInteger(ip)&&ip>0?[ip>>>24,(ip>>>16)&255,(ip>>>8)&255,ip&255].join('.'):'—';
+@@ -137,7 +146,7 @@ async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(sn
+   function translate(){
+     scheduleEditor.translate();
+     timerEditor.translate();
+-    document.documentElement.lang='en';
++    applyLanguage();
+     document.title='MTTL-W01';for(let i=1;i<=4;i++)el('channel-name-label-'+i).textContent=t('channelName',{number:i});
+     for(const [attr,target] of [['data-i18n',null],['data-i18n-placeholder','placeholder'],['data-i18n-aria','aria-label']])document.querySelectorAll('['+attr+']').forEach(n=>target?n.setAttribute(target,t(n.getAttribute(attr))):n.textContent=t(n.getAttribute(attr)));
+     el('scan').textContent=t('realScan');document.querySelector('#wifi-form button.primary').textContent=t('realConnect');
+@@ -149,8 +158,15 @@ async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(sn
+   function selectTab(id){document.querySelectorAll('section').forEach(s=>s.classList.toggle('active',s.id===id));document.querySelectorAll('[role=tab]').forEach(b=>b.setAttribute('aria-selected',String(b.getAttribute('aria-controls')===id)));}
+   document.querySelectorAll('[role=tab]').forEach(button=>button.onclick=()=>{initialTabPending=false;selectTab(button.getAttribute('aria-controls'));});
+   el('edit-names').onclick=()=>edit();el('cancel-names').onclick=()=>{el('name-editor').hidden=true;};
++  el('language').onclick=async()=>{
++    if(!configuration||![2,5].includes(snapshot?.state))return;
++    const previous=lang,next=previous==='ar'?'en':'ar',code=next==='ar'?2:1;
++    setLanguage(next);
++    try{await storeConfiguration({...configuration,language:code});}
++    catch(_){setLanguage(previous);logEvent('Language save could not be confirmed; check the device state.');}
++  };
+   el('name-form').oncompositionstart=()=>{composing=true;};el('name-form').oncompositionend=()=>{composing=false;};
+-  el('name-form').onsubmit=async event=>{event.preventDefault();if(composing)return;const device=el('device-name-input').value,channels=Array.from({length:4},(_,i)=>el('channel-name-'+(i+1)).value);if(![device,...channels].every(goodName)){el('name-status').textContent=t('nameInvalid');return;}if(configuration){try{await storeConfiguration({...configuration,device:device.trim(),channels:channels.map(x=>x.trim()),language:1});el('name-status').textContent='Saved in device flash';}catch(_){el('name-status').textContent='Device save failed';return;}}else el('name-status').textContent=t('browserNames');preferences.deviceName=device.trim();preferences.channelNames=channels.map(x=>x.trim());save();render();};
++  el('name-form').onsubmit=async event=>{event.preventDefault();if(composing)return;const device=el('device-name-input').value,channels=Array.from({length:4},(_,i)=>el('channel-name-'+(i+1)).value);if(![device,...channels].every(goodName)){el('name-status').textContent=t('nameInvalid');return;}if(configuration){try{await storeConfiguration({...configuration,device:device.trim(),channels:channels.map(x=>x.trim())});el('name-status').textContent=t('nameSavedFlash');}catch(_){el('name-status').textContent=t('nameSaveFailed');return;}}else el('name-status').textContent=t('browserNames');preferences.deviceName=device.trim();preferences.channelNames=channels.map(x=>x.trim());save();render();};
+   ['all-on','all-off','firmware-picker','firmware-verify','firmware-update'].forEach(id=>el(id).disabled=true);
+   async function control(channel,on){
+     if(pendingChannels.has(channel)||pendingChannels.has(4)||(channel===4&&pendingChannels.size))return;
+@@ -198,7 +214,7 @@ const timerEditor=MttlTimer.mount({available:()=>!!configuration&&[2,5].includes
+   el('wifi-form').onsubmit=async event=>{event.preventDefault();const ssid=el('ssid').value,password=el('wifi-password').value;el('wifi-password').value='';if(!ssid||new TextEncoder().encode(ssid).length>32){wifiMessage='ssidInvalid';render();return;}
+     try{await request('/api/wifi',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({ssid,password}).toString()});wifiMessage='connectAccepted';}catch(_){wifiMessage='apiUnavailable';}render();
+   };
+-  async function poll(){try{const result=await request('/api/status');if(!Number.isInteger(result.state)||result.state<0||result.state>6||!Number.isInteger(result.uptime_ms))throw Error('State');snapshot=result;statusAt=Date.now();}catch(_){snapshot=null;if(!controlBusy)deviceSnapshot=null;}if(snapshot){startEvents();if(!controlBusy&&!eventConnected){try{const d=await request('/api/device');if(!Array.isArray(d.channels)||d.channels.length!==4)throw Error('Device');if(!controlBusy&&!eventConnected)deviceSnapshot=d;}catch(_){if(!controlBusy)deviceSnapshot=null;}}if(!configuration){try{const c=await request('/api/config');if(!Array.isArray(c.channels)||c.channels.length!==4||typeof c.broker!=='string')throw Error('Config');configuration=c;el('broker').value=c.broker;el('port').value=c.port;el('user').value=c.user;el('enabled').checked=c.enabled;loadProtection();timerEditor.load(c.timer_minutes);scheduleEditor.load(c.schedule_hex||MttlSchedule.encode(MttlSchedule.defaults()));}catch(_){configuration=null;}}}document.querySelectorAll('#mqtt-form input,#mqtt-form button').forEach(node=>node.disabled=!configuration||![2,5].includes(snapshot?.state));render();setTimeout(poll,eventConnected?20000:1000);}
++  async function poll(){try{const result=await request('/api/status');if(!Number.isInteger(result.state)||result.state<0||result.state>6||!Number.isInteger(result.uptime_ms))throw Error('State');snapshot=result;statusAt=Date.now();}catch(_){snapshot=null;if(!controlBusy)deviceSnapshot=null;}if(snapshot){startEvents();if(!controlBusy&&!eventConnected){try{const d=await request('/api/device');if(!Array.isArray(d.channels)||d.channels.length!==4)throw Error('Device');if(!controlBusy&&!eventConnected)deviceSnapshot=d;}catch(_){if(!controlBusy)deviceSnapshot=null;}}if(!configuration){try{const c=await request('/api/config');if(!Array.isArray(c.channels)||c.channels.length!==4||typeof c.broker!=='string')throw Error('Config');configuration=c;applyLanguage();const savedLang=c.language===2?'ar':'en';if(savedLang!==lang){lang=savedLang;translate();}el('broker').value=c.broker;el('port').value=c.port;el('user').value=c.user;el('enabled').checked=c.enabled;loadProtection();timerEditor.load(c.timer_minutes);scheduleEditor.load(c.schedule_hex||MttlSchedule.encode(MttlSchedule.defaults()));}catch(_){configuration=null;}}}document.querySelectorAll('#mqtt-form input,#mqtt-form button').forEach(node=>node.disabled=!configuration||![2,5].includes(snapshot?.state));render();setTimeout(poll,eventConnected?20000:1000);}
+   selectTab('wifi');translate();
+   const initialPoll=poll;
+   poll=async function(){await initialPoll();if(initialTabPending&&snapshot){selectTab(typeof location!=='undefined'&&location.hash==='#firmware'?'firmware':snapshot.state===5?'device':'wifi');initialTabPending=false;}};

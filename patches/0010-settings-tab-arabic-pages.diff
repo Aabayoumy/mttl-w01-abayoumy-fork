@@ -1,0 +1,858 @@
+diff --git a/source/standalone/build_assets.py b/source/standalone/build_assets.py
+index a102d3d..145b189 100644
+--- a/source/standalone/build_assets.py
++++ b/source/standalone/build_assets.py
+@@ -17,12 +17,14 @@ html=html.replace('<script src="firmware.js"></script>','').replace('<script src
+ # Device boot starts in setup AP; show setup even before API/JS has loaded.
+ html=html.replace('aria-selected="true" aria-controls="device"','aria-selected="false" aria-controls="device"')
+ html=html.replace('aria-selected="false" aria-controls="wifi"','aria-selected="true" aria-controls="wifi"')
++html=html.replace('aria-selected="false" aria-controls="settings"','aria-selected="true" aria-controls="settings"')
++html=html.replace(' data-i18n-aria="settings" hidden>',' data-i18n-aria="settings">')
+ html=html.replace('<section id="device" class="active"','<section id="device"')
+ html=html.replace('<section id="wifi" role=','<section id="wifi" class="active" role=')
+ if options.ota_test:
+-    panel='''<section id="firmware" role="tabpanel" aria-labelledby="tab-firmware"><div class="panel">
++    panel='''<section id="firmware" role="tabpanel" aria-labelledby="sub-firmware"><div class="panel">
+ <h2 data-i18n="firmware">Firmware</h2><div class="sensor"><span data-i18n="currentVersion">Current version</span><b id="current-firmware-version">2.1.0</b></div>
+-<div class="sensor"><span>Build ID</span><b id="current-build-id">—</b></div>
++<div class="sensor"><span data-i18n="buildId">Build ID</span><b id="current-build-id">—</b></div>
+ <p id="ota-hint" class="muted"></p><form id="firmware-form">
+ <label id="ota-file-label" for="firmware-picker"></label><input id="firmware-file" type="file" accept=".fwr" hidden>
+ <div class="file-picker"><button id="firmware-picker" type="button" data-i18n="chooseFirmwareFile">Choose file</button><span id="firmware-selected" class="muted" aria-live="polite"></span></div>
+@@ -47,7 +49,7 @@ html=re.sub(r'<title>.*?</title>', '<title>MTTL-W01</title>',html,flags=re.S)
+ html=re.sub(r'<p class="note".*?</p>', '',html,flags=re.S)
+ html=re.sub(r'<span class="badge".*?</span>', '',html,flags=re.S)
+ html=html.replace('.note,','')
+-for before,after in [('data-i18n="scan"','data-i18n="realScan"'),('data-i18n="connect"','data-i18n="realConnect"'),('data-i18n="saveMock"','data-i18n="saveDevice"'),('Simulate Wi-Fi scan','Scan Wi-Fi'),('Simulate connection','Connect'),('Simulate saving','Save to device')]:
++for before,after in [('data-i18n="scan"','data-i18n="realScan"'),('data-i18n="connect"','data-i18n="realConnect"'),('data-i18n="saveMock"','data-i18n="mqttSave"'),('Simulate Wi-Fi scan','Scan Wi-Fi'),('Simulate connection','Connect'),('Simulate saving','Save to device')]:
+     html=html.replace(before,after)
+ assert not any(sample in html for sample in ('192.0.2.10','02:00:00:00:00:01','SIMULATED_AP','1.551 kWh','220.0 V'))
+ html=re.sub(r'<!--.*?-->','',html,flags=re.S)
+@@ -84,7 +86,7 @@ messages={name:{key:value for key,value in table.items() if any(quote+key+quote
+ assert set(messages['ar'])<=set(messages['en']),'Arabic key without an English fallback'
+ assert all(value.strip() for table in messages.values() for value in table.values()),'Empty dashboard string'
+ assert all(re.search(r'[\u0600-\u06ff]',value) for value in messages['ar'].values()),'Arabic table entry left in English'
+-compact='globalThis.MttlI18n={messages:'+json.dumps(messages,ensure_ascii=False,separators=(',',':'))+',text:(language,key,args={})=>{const table=globalThis.MttlI18n.messages[language]||globalThis.MttlI18n.messages.en,value=table[key]!==undefined?table[key]:globalThis.MttlI18n.messages.en[key];if(value===undefined)throw Error("Missing translation: "+key);return value.replace(/\\{(\\w+)\\}/g,(_,name)=>String(args[name]??""));}};'
++compact='globalThis.MttlI18n={messages:'+json.dumps(messages,ensure_ascii=False,separators=(',',':'))+',set:l=>{globalThis.MttlI18n.lang=l==="ar"?"ar":"en"},t:(k,a={})=>globalThis.MttlI18n.text(globalThis.MttlI18n.lang||"en",k,a),text:(language,key,args={})=>{const table=globalThis.MttlI18n.messages[language]||globalThis.MttlI18n.messages.en,value=table[key]!==undefined?table[key]:globalThis.MttlI18n.messages.en[key];if(value===undefined)throw Error("Missing translation: "+key);return value.replace(/\\{(\\w+)\\}/g,(_,name)=>String(args[name]??""));}};'
+ sources=[(path,kind,compact.encode() if path=='/i18n.js' else data) for path,kind,data in sources]
+ lines=['/* Generated gzip UI assets. Do not edit by hand. */','#include <stddef.h>',
+        'typedef struct { const char *path,*type; const unsigned char *data; size_t size; } mttl_asset;']
+diff --git a/source/standalone/tests/test_dashboard_loading.cjs b/source/standalone/tests/test_dashboard_loading.cjs
+index de89a00..87f54d9 100644
+--- a/source/standalone/tests/test_dashboard_loading.cjs
++++ b/source/standalone/tests/test_dashboard_loading.cjs
+@@ -14,7 +14,7 @@ async function run(){
+  let tab,visible,calls=0,fail=true,pending=false;
+  const jobs=new Map();let seq=0;
+  const doc={documentElement:{lang:'en'},getElementById:id=>nodes[id],querySelector:()=>({addEventListener:(event,fn)=>tab=fn}),addEventListener:(event,fn)=>visible=fn};
+- vm.runInNewContext(source('ota-live.js'),{document:doc,localStorage:{getItem:()=>null},MttlI18n:{text:()=>''},AbortController,
++ const i18n={};vm.runInNewContext(source('i18n.js'),i18n);vm.runInNewContext(source('ota-live.js'),{document:doc,localStorage:{getItem:()=>null},MttlI18n:i18n.MttlI18n,AbortController,
+   setTimeout:(fn,ms)=>{jobs.set(++seq,{fn,ms});return seq;},clearTimeout:id=>jobs.delete(id),fetch:async()=>{calls++;if(fail)throw Error('offline');if(pending)return new Promise(()=>{});return {ok:true,json:async()=>({ota_ready:true,build_id:'0123456789abcdef'})};}});
+  await new Promise(setImmediate);assert.equal(calls,1);assert.equal(nodes['firmware-update'].textContent,'Update');assert.equal(nodes['firmware-update'].disabled,true);
+  const retry=[...jobs.values()].find(x=>x.ms===3000);assert.ok(retry);fail=false;await retry.fn();
+diff --git a/source/standalone/tests/test_i18n.cjs b/source/standalone/tests/test_i18n.cjs
+index d2fcf62..53f9192 100644
+--- a/source/standalone/tests/test_i18n.cjs
++++ b/source/standalone/tests/test_i18n.cjs
+@@ -1,18 +1,19 @@
+ 'use strict';
+-/* English is the complete table; Egyptian Arabic covers the main page only and
+- * must fall back to English for every other key. The device build prunes both
+- * tables by the same literal-key scan, so a key used in an asset must resolve
+- * in the selected language. */
++/* English is the complete table and the fallback. Egyptian Arabic covers the
++ * power-strip pages (device, protection, scheduler, timer); the Settings group
++ * (Wi-Fi, MQTT, Firmware, Logs) stays English in both languages. */
+ const assert=require('assert');
+ const i18n=require('../ui/i18n.js');
+ const {en,ar}=i18n.messages;
+ let checks=0;
+ function check(name,fn){fn();checks++;}
+ check('tables',()=>{assert.ok(en&&ar);assert.ok(Object.keys(en).length>Object.keys(ar).length);});
+-check('arabic is a subset of english',()=>{for(const key of Object.keys(ar))assert.ok(key in en,'missing en key '+key);});
++check('arabic keys exist in english',()=>{assert.deepEqual(Object.keys(ar).filter(key=>!(key in en)),[]);});
+ check('every arabic entry is translated',()=>{for(const [key,value] of Object.entries(ar))assert.ok(/[\u0600-\u06ff]/.test(value),'untranslated '+key);});
+-check('selects by language',()=>{assert.equal(i18n.text('ar','totalPower'),'القدرة الكلية');assert.equal(i18n.text('en','totalPower'),'Total Power');});
+-check('falls back to english',()=>{assert.equal(i18n.text('ar','protection'),'Protection');assert.equal(i18n.text('xx','voltage'),'Voltage');assert.equal(i18n.text(undefined,'uptime'),'Uptime');});
++check('arabic pages are translated',()=>{assert.equal(i18n.text('ar','device'),'المشترك');assert.equal(i18n.text('ar','protection'),'الحماية');assert.equal(i18n.text('ar','scheduler'),'الجدولة');assert.equal(i18n.text('ar','timer'),'التايمر');assert.equal(i18n.text('ar','settings'),'الإعدادات');});
++check('settings stay english',()=>{for(const key of ['wifi','mqtt','firmware','logs','eventLog','network','broker','port','username','autoscroll','noSelectedFile','realScan','realConnect','integrationPending','otaHint','otaUpdate','otaFile','otaConfirm','buildId'])assert.ok(!(key in ar),'translated setting: '+key);});
++check('falls back to english',()=>{assert.equal(i18n.text('ar','wifi'),'Wi-Fi setup');assert.equal(i18n.text('xx','voltage'),'Voltage');assert.equal(i18n.text(undefined,'uptime'),'Uptime');});
++check('active language helpers',()=>{i18n.set('ar');assert.equal(i18n.t('settings'),'الإعدادات');assert.equal(i18n.t('wifi'),'Wi-Fi setup');assert.equal(i18n.t('rule',{number:2}),'قاعدة 2');i18n.set('en');assert.equal(i18n.t('settings'),'Settings');});
+ check('interpolation',()=>{assert.equal(i18n.text('ar','channelName',{number:3}),'اسم القناة 3');assert.equal(i18n.text('en','channelName',{number:3}),'Channel 3 name');});
+ check('unknown key throws',()=>{assert.throws(()=>i18n.text('ar','nope'),/Missing translation/);});
+-console.log(JSON.stringify({passed:true,checks,scope:'English/Arabic tables, fallback, interpolation'}));
++console.log(JSON.stringify({passed:true,checks,scope:'English table, Arabic power-strip pages, English-only Settings, fallback, active language, interpolation'}));
+diff --git a/source/standalone/tests/test_ota_live.cjs b/source/standalone/tests/test_ota_live.cjs
+index fbd5968..b3212be 100644
+--- a/source/standalone/tests/test_ota_live.cjs
++++ b/source/standalone/tests/test_ota_live.cjs
+@@ -4,7 +4,8 @@ const elements=Object.fromEntries(ids.map(id=>[id,{textContent:'',value:'',files
+ const document={documentElement:{lang:'en'},getElementById:id=>elements[id]};
+ let posts=[],valid=true,confirmed=true,responseText=null,networkError=null,statusBuild='0123456789abcdef';
+ const storage=new Map();
+-const context={document,localStorage:{setItem:(k,v)=>storage.set(k,v),getItem:k=>storage.get(k),removeItem:k=>storage.delete(k)},MttlI18n:{text:()=>'No file selected'},confirm:()=>confirmed,AbortController,setTimeout:()=>1,clearTimeout(){},fetch:async(url,options={})=>{
++const i18n={};vm.runInNewContext(fs.readFileSync(require('node:path').join(__dirname,'../ui/i18n.js'),'utf8'),i18n);
++const context={document,localStorage:{setItem:(k,v)=>storage.set(k,v),getItem:k=>storage.get(k),removeItem:k=>storage.delete(k)},MttlI18n:i18n.MttlI18n,confirm:()=>confirmed,AbortController,setTimeout:()=>1,clearTimeout(){},fetch:async(url,options={})=>{
+  if(url.endsWith('/status'))return {ok:true,json:async()=>({ota_ready:true,build_id:statusBuild})};
+  posts.push({url,options});if(networkError)throw networkError;return {ok:valid,status:valid?200:400,text:async()=>responseText??JSON.stringify({written:valid,activated:valid})};
+ }};
+@@ -40,8 +41,8 @@ async function run(){
+  await elements['firmware-form'].onsubmit({preventDefault(){}});assert.match(elements['firmware-status'].textContent,/Restore completed.*1.0.68/);assert.equal(storage.has('mttl.ota.pending-build'),false);
+  responseText=JSON.stringify({already_installed:true,activated:false,rebooting:false});
+  vm.runInNewContext(fs.readFileSync(require('node:path').join(__dirname,'../ui/ota-live.js'),'utf8'),context);await new Promise(resolve=>setImmediate(resolve));
+- await elements['firmware-form'].onsubmit({preventDefault(){}});assert.match(elements['firmware-status'].textContent,/already installed/);assert.equal(elements['firmware-update'].disabled,false);assert.equal(storage.has('mttl.ota.pending-build'),false);
+- assert.match(elements['firmware-status'].textContent,/already installed/);
++ await elements['firmware-form'].onsubmit({preventDefault(){}});assert.match(elements['firmware-status'].textContent,/already installed/i);assert.equal(elements['firmware-update'].disabled,false);assert.equal(storage.has('mttl.ota.pending-build'),false);
++ assert.match(elements['firmware-status'].textContent,/already installed/i);
+  console.log(JSON.stringify({checks:31,failed:0,scope:'Mock OTA dashboard form; no device writes'}));
+ }
+ run().catch(e=>{console.error(e);process.exitCode=1;});
+diff --git a/source/standalone/tests/test_ota_reconnect.cjs b/source/standalone/tests/test_ota_reconnect.cjs
+index 4f7ed2f..218e0e5 100644
+--- a/source/standalone/tests/test_ota_reconnect.cjs
++++ b/source/standalone/tests/test_ota_reconnect.cjs
+@@ -5,7 +5,8 @@ async function scenario(mode){
+  let now=0,serial=0,posts=0,reloads=0,build='0123456789abcdef',offline=false;const jobs=new Map();
+  const document={documentElement:{lang:'en'},getElementById:id=>nodes[id]};
+  const location={reload(){reloads++;}};
+- const context={document,location,Date:{now:()=>now},localStorage:{getItem:()=>null,removeItem(){},setItem(){}},MttlI18n:{text:()=>''},confirm:()=>true,AbortController,
++ const i18n={};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../ui/i18n.js'),'utf8'),i18n);
++ const context={document,location,Date:{now:()=>now},localStorage:{getItem:()=>null,removeItem(){},setItem(){}},MttlI18n:i18n.MttlI18n,confirm:()=>true,AbortController,
+   setTimeout:(fn,ms)=>{jobs.set(++serial,{fn,ms});return serial;},clearTimeout:id=>jobs.delete(id),
+   fetch:async(url)=>{if(url.includes('/upload')){posts++;return {ok:true,text:async()=>JSON.stringify(mode==='restore'?{written:true,activated:true,restore_version:'1.0.66'}:mode==='same'?{already_installed:true}:{written:true,activated:true})};}
+    if(offline)throw Error('offline');return {ok:true,json:async()=>({ota_ready:true,build_id:build})};}};
+diff --git a/source/standalone/ui/app.js b/source/standalone/ui/app.js
+index aa11a75..9bedcbf 100644
+--- a/source/standalone/ui/app.js
++++ b/source/standalone/ui/app.js
+@@ -30,7 +30,8 @@
+     if(byId('autoscroll').checked)byId('log').scrollTop=byId('log').scrollHeight;
+   }
+   function log(key,args={}){events.push({at:new Date(),key,args});if(events.length>64)events.shift();renderLogs();}
+-  function tab(id){document.querySelectorAll('section').forEach(s=>s.classList.toggle('active',s.id===id));document.querySelectorAll('[role=tab]').forEach(b=>b.setAttribute('aria-selected',String(b.getAttribute('aria-controls')===id)));}
++  const tabGroups={wifi:'settings',mqtt:'settings',firmware:'settings',logs:'settings'};let settingsTab='wifi';
++  function tab(id){if(id==='settings')id=settingsTab;const group=tabGroups[id]||'';if(group)settingsTab=id;document.querySelectorAll('section').forEach(s=>s.classList.toggle('active',s.id===id));const active=group||id;document.querySelectorAll('nav [role=tab]').forEach(b=>b.setAttribute('aria-selected',String(b.getAttribute('aria-controls')===active)));const sub=byId('subnav');if(sub){sub.hidden=!group;document.querySelectorAll('#subnav [role=tab]').forEach(b=>b.setAttribute('aria-selected',String(b.getAttribute('aria-controls')===id)));}}
+   document.querySelectorAll('[role=tab]').forEach(b=>b.addEventListener('click',()=>tab(b.getAttribute('aria-controls'))));
+   const deviceName=()=>preferences.deviceName||t('deviceDefault');
+   const channelName=i=>preferences.channelNames[i]||t(i===0?'channelOneDefault':'channelDefault',{number:i+1});
+diff --git a/source/standalone/ui/i18n.js b/source/standalone/ui/i18n.js
+index a1a0c20..dcd0962 100644
+--- a/source/standalone/ui/i18n.js
++++ b/source/standalone/ui/i18n.js
+@@ -1,8 +1,11 @@
+ /* Dashboard strings. English is the complete table and the fallback; Egyptian
+- * Arabic covers the main "Power strip" page only. The selected language is
+- * stored in the device settings record (set via /api/config), never in the
+- * browser, so every client shows the same one until it is changed on the device.
+- * text(language,key,args) falls back to English for keys with no translation. */
++ * Arabic covers the power-strip pages (device, protection, scheduler, timer).
++ * The Settings group - Wi-Fi, MQTT, Firmware and Logs - stays English in both
++ * languages, so those keys have no Arabic value and fall back to English.
++ * The selected language is stored in the device settings record (set via
++ * /api/config), never in the browser, so every client shows the same one.
++ * text(language,key,args) falls back to English for missing keys; set()/t()
++ * let the shared editors follow the active dashboard language. */
+ (function(root){
+   'use strict';
+   const en={
+@@ -11,7 +14,7 @@
+     protectCurrent:'Overcurrent · total current and every outlet',
+     protectPower:'Power · total power',
+     applyProtection:'Apply',
+-    protectionHint:'The current limit applies to the total and to every outlet on its own: an outlet over the limit is cut alone, while total power cuts the whole strip. A temperature trip cuts the blamed outlet. Current and power need two consecutive rounds; each channel is sampled about every 10 seconds.',
++    protectionHint:'The current limit applies to the total and to each outlet: an outlet over the limit is cut alone, while total power cuts the whole strip. A temperature trip cuts the blamed outlet. Current and power need two consecutive rounds; each channel is sampled about every 10 seconds.',
+     title:'MTTL-W01 standalone firmware preview',
+     simulation:'PC simulation',
+     note:'A preview of controls and setup. Values are simulated; this page does not connect to a power strip, Wi-Fi or MQTT.',
+@@ -33,7 +36,7 @@
+     nameHint:'Names are applied when you press Save. Each name may contain up to 64 UTF-8 bytes.',
+     saveNames:'Save names',
+     cancel:'Cancel',
+-    nameInvalid:'Enter a name for the device and every channel. Each name must fit within 64 UTF-8 bytes and contain no control characters.',
++    nameInvalid:'Enter a name for the device and every channel (64 UTF-8 bytes max, no control characters).',
+     namesSaved:'Names saved.',
+     namesSession:'Names updated. This environment keeps them only for the current page session.',
+     connection:'Connection',
+@@ -133,7 +136,7 @@
+     realConnect:'Connect',
+     scanProgress:'Scanning…',
+     scanDone:'Scan completed',
+-    connectAccepted:'Connection requested. After the AP closes, open the device at its new IP.',
++    connectAccepted:'Connection requested. Once the AP closes, open the device at its new IP.',
+     browserNames:'Names saved in this browser.',
+     netState0:'Stopped',
+     netState1:'Stopping',
+@@ -147,19 +150,111 @@
+     scheduler:'Scheduler',
+     timer:'Timer',
+     saveDevice:'Save to device',
++    mqttSave:'Save to device',
++    saveFailed:'Save failed. Check limits, conflicts, settings and connection.',
+     timerShort:'Timer',
+     stateOn:'ON',
+     stateOff:'OFF',
+     statePartial:'PARTIAL',
+-    lockTitleOn:'Locked: this outlet ignores the buttons, the web UI, Home Assistant, its timer and the schedules',
++    lockTitleOn:'Locked: buttons, the web UI, Home Assistant, its timer and its schedules cannot switch this outlet',
+     lockTitleOff:'Unlocked: every control can switch this outlet',
+     nameSavedFlash:'Saved in device flash',
+     nameSaveFailed:'Device save failed',
++    buildId:'Build ID',
++    otaHint:'Keep power on. Supported: standalone FWR, stock 1.0.66 or local-patched 1.0.68. Restoring removes standalone web/HA.',
++    otaFile:'Firmware file (.fwr)',
++    otaUpdate:'Update',
++    otaReady:'Ready to update',
++    otaNotReady:'Not ready to update',
++    otaSelectFile:'Select a valid .fwr file.',
++    otaUploading:'Uploading… Keep power on.',
++    otaDone:'Update completed. Reconnecting to Wi-Fi.',
++    otaUncertain:'Result uncertain. Reconnect and check before retrying.',
++    otaConfirm:'Update and restart?\nRestoring 1.0.66/1.0.68 removes standalone web/HA.',
++    otaRestoreDone:'Restore completed. Check the original provisioning or backend connectivity.',
++    otaInstalled:'Already installed. No update needed.',
++    otaTimeout:'Update completed, but reconnection timed out. Check the device IP and refresh.',
++    otaVerifyOk:'Build verification: OK · {build}',
++    otaVerifyFail:'Build verification: NOT MATCHED · {build}',
++    settings:'Settings',
++    scheduleHint:'8 rules. Requires NTP. Missed events and missing dates are skipped. A locked outlet is not switched by its schedule.',
++    timeZone:'Time zone · manual DST',
++    rule:'Rule {number}',
++    enabledLabel:'Enabled',
++    delete:'Delete',
++    repeat:'Repeat',
++    daily:'Daily',
++    weekly:'Weekly',
++    monthlyDate:'Monthly date',
++    lastDay:'Last day of month',
++    day:'Day',
++    time:'Time',
++    target:'Target',
++    action:'Action',
++    allChannels:'All channels',
++    timerRegistered:'timer registered',
++    addRule:'Add rule',
++    saved:'Saved.',
++
++
++    hour:'hour',
++    minute:'minute',
++    hours:'Hours',
++    minutes:'Minutes',
++    am:'AM',
++    pm:'PM',
++    timerHint:'Auto OFF after ON: 1 minute-24 hours. A channel cannot have a timer and a schedule, and a locked outlet cannot have a timer.',
++    timerLocked:'Locked outlet. Unlock it before registering a timer.',
++    timerConflict:'Registered in scheduler. Delete its schedules first.',
++    timerRegisteredNote:'Registered · save to apply',
++    timerUnregistered:'Unregistered · save zero to remove.',
++    timerLive:'Timer 00:00:00',
++    wdMon:'Mon',
++    wdTue:'Tue',
++    wdWed:'Wed',
++    wdThu:'Thu',
++    wdFri:'Fri',
++    wdSat:'Sat',
++    wdSun:'Sun',
++    lastTrip:'Last trip',
++    sensorErrors:'Sensor errors',
++    none:'None',
++    logLockSaved:'Lock saved. A locked outlet ignores buttons, the web UI, HA, its timer and schedules.',
++    logLockFailed:'Lock save could not be confirmed; check the device state.',
++    logEmpty:'Browser-session events only; not stored in device.',
++    logApiOk:'Device API recovered',
++    logApiDown:'Device API unavailable',
++    logReboot:'Device reboot observed',
++    logWifiState:'Wi-Fi state: {state}',
++    logMqttCode:'MQTT state code: {code}',
++    logChannelState:'Channel {number} confirmed state: {state}',
++    logObserveStart:'Device state observation started',
++    logStreamOpen:'Live state stream connected',
++    logStreamDown:'Live stream interrupted; waiting for reconnect',
++    logLangFailed:'Language save could not be confirmed; check the device state.',
++    logControlFailed:'Control failed; showing last confirmed state',
++
++    logSavedBroker:'Saved in flash; plaintext IPv4 broker only',
+     };
+-  /* Egyptian Arabic (colloquial Cairene). Only the main page is translated;
+-   * everything else intentionally falls back to English. */
++  /* Egyptian Arabic (colloquial Cairene). Covers every tab; English above stays
++   * the complete table and the fallback for any key added later. */
+   const ar={
++    protection:'الحماية',
++    protectTemperature:'الحرارة · أعلى قناة',
++    protectCurrent:'زيادة التيار · الكلي وكل مخرج',
++    protectPower:'القدرة · القدرة الكلية',
++    applyProtection:'تطبيق',
++    protectionHint:'حد التيار على الكل وعلى كل مخرج: المخرج اللي يعدي الحد بيتقطع لوحده، والقدرة الكلية بتقطع المشترك كله. قطع الحرارة بيقطع المخرج السبب. التيار والقدرة محتاجين قراءتين ورا بعض؛ كل قناة بتتقري كل 10 ثواني تقريبًا.',
++    title:'MTTL-W01 · معاينة الفيرموير',
++    simulation:'محاكاة على الكمبيوتر',
++    note:'معاينة للتحكم والإعداد. القيم محاكاة؛ الصفحة دي مش بتتصل بمشترك ولا واي فاي ولا MQTT.',
++    menu:'القائمة',
+     device:'المشترك',
++
++
++
++
++
+     deviceDefault:'مشترك الصالة',
+     channelOneDefault:'مروحة الصالة',
+     channelDefault:'قناة {number}',
+@@ -171,9 +266,11 @@
+     nameHint:'الأسماء بتتحفظ لما تدوس حفظ. كل اسم لحد 64 بايت UTF-8.',
+     saveNames:'حفظ الأسماء',
+     cancel:'إلغاء',
+-    nameInvalid:'اكتب اسم للمشترك وكل قناة. الاسم لازم يكون في حدود 64 بايت UTF-8 ومن غير حروف تحكم.',
++    nameInvalid:'اكتب اسم للمشترك وكل قناة (64 بايت UTF-8 بالكتير، من غير حروف تحكم).',
+     namesSaved:'الأسماء اتحفظت.',
++    namesSession:'الأسماء اتحدثت. البيئة دي بتحفظها للصفحة الحالية بس.',
+     connection:'الاتصال',
++    online:'متصل · محاكاة',
+     currentTime:'الوقت الحالي',
+     recentConnection:'آخر اتصال',
+     uptime:'مدة التشغيل',
+@@ -193,6 +290,84 @@
+     turnOn:'شغّل',
+     allOn:'تشغيل الكل',
+     allOff:'إطفاء الكل',
++    hold:'اضغط مطول على الزرار الرئيسي 10 ثواني',
++    holdHint:'افتح وضع إعداد الواي فاي',
++
++    scan:'ابحث عن شبكات',
++
++
++
++    connect:'اتصل',
++
++
++    apReady:'نقطة الإعداد جاهزة · 192.168.4.1',
++
++    wifiConnected:'الاتصال و DHCP محاكاة · 192.0.2.10',
++
++
++
++
++
++    saveMock:'محاكاة الحفظ',
++    enabled:'مفعّل · اتصال محاكاة',
++    disabled:'مقفول',
++
++
++
++
++
++    updateMock:'محاكاة التحديث',
++
++
++
++
++
++    match:'مطابق',
++    unknown:'مش معروف',
++
++    chooseFile:'اختار ملف الأول وبعدين افحصه.',
++
++
++
++
++    noFile:'اختار ملف فيرموير.',
++    fwSize:'حجم الملف أكبر من حد الفحص.',
++    fwCrypto:'فحص SHA-256 مش متاح في المتصفح ده.',
++    inspecting:'بنفحص الملف…',
++    inspectionPassed:'النوع والبصمة تمام. تقدر تحاكي التحديث.',
++    fwImage:'فحص الهيدر أو نقطة البداية أو الطول أو البصمة فشل.',
++    fwHashSyntax:'SHA-256 المتوقع لازم يكون 64 رقم سداسي عشر.',
++    fwHashMismatch:'الملف مش مطابق للـ SHA-256 المتوقع.',
++    fwRead:'مقدرناش نقرا الملف أو نفحصه.',
++    uploading:'بنحاكي الرفع…',
++    rechecking:'بنحاكي التحقق بعد الرفع…',
++    rebooting:'بنحاكي إعادة التشغيل والاتصال…',
++    updateComplete:'المحاكاة خلصت. الجهاز الحقيقي وإصدار الفيرموير ما اتغيروش.',
++
++
++    log_started:'بدأت محاكاة المعاينة',
++    log_relay:'القناة {number}: {state}',
++    log_allOn:'تشغيل الكل',
++    log_allOff:'إطفاء الكل',
++    log_provision:'اتطلب وضع الإعداد',
++    log_scan:'بحث الواي فاي خلص',
++    log_wifi:'محاكاة اتصال الواي فاي خلصت',
++    log_mqttOn:'MQTT اتفعّل',
++    log_mqttOff:'MQTT اتقفل',
++    log_fwPassed:'فحص الفيرموير نجح',
++    log_fwFailed:'فحص الفيرموير فشل',
++    log_fwComplete:'محاكاة تحديث الفيرموير خلصت',
++    log_names:'أسماء المشترك والقنوات اتغيرت',
++    deviceIntegration:'مسودة ربط الجهاز',
++    liveNote:'فيرموير تجريبي. إعدادات الواي فاي والأسماء و MQTT بتتحفظ في فلاشة الجهاز. OTA من الويب على /ota؛ التحكم في الريلاي والعداد لسه مقفول.',
++
++    apiUnavailable:'مفيش رد',
++
++
++
++
++
++
+     netState0:'متوقف',
+     netState1:'بيتوقف',
+     netState2:'وضع الإعداد',
+@@ -200,18 +375,102 @@
+     netState4:'بياخد IP',
+     netState5:'متصل',
+     netState6:'عطل',
+-    apiUnavailable:'مفيش رد',
++
++
++    scheduler:'الجدولة',
++    timer:'التايمر',
++    saveDevice:'حفظ في الجهاز',
++    saveFailed:'الحفظ فشل. بص على الحدود والتعارضات والإعدادات والاتصال.',
+     timerShort:'التايمر',
+     stateOn:'شغال',
+     stateOff:'مطفي',
+     statePartial:'جزئي',
+-    lockTitleOn:'مقفول: المخرج ده مش بيتحكم فيه من الأزرار ولا الويب ولا Home Assistant ولا التايمر ولا الجدولة',
++    lockTitleOn:'مقفول: الأزرار والويب و Home Assistant والتايمر والجدولة مش بيشغلوا المخرج ده',
+     lockTitleOff:'مفتوح: كل وسائل التحكم تقدر تشغل المخرج ده',
+     nameSavedFlash:'اتحفظ في فلاشة الجهاز',
+     nameSaveFailed:'الحفظ في الجهاز فشل',
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++    settings:'الإعدادات',
++    scheduleHint:'8 قواعد. محتاج NTP. الأحداث الفايتة والتواريخ الناقصة بتتخطى. المخرج المقفول جدولته مش بتشغله.',
++    timeZone:'التوقيت · توقيت صيفي يدوي',
++    rule:'قاعدة {number}',
++    enabledLabel:'مفعّلة',
++    delete:'حذف',
++    repeat:'التكرار',
++    daily:'كل يوم',
++    weekly:'كل أسبوع',
++    monthlyDate:'تاريخ شهري',
++    lastDay:'آخر يوم في الشهر',
++    day:'اليوم',
++    time:'الوقت',
++    target:'المخرج',
++    action:'العملية',
++    allChannels:'كل القنوات',
++    timerRegistered:'التايمر مسجل',
++    addRule:'إضافة قاعدة',
++    saved:'اتحفظ.',
++
++
++    hour:'ساعة',
++    minute:'دقيقة',
++    hours:'ساعات',
++    minutes:'دقايق',
++    am:'ص',
++    pm:'م',
++    timerHint:'إطفاء تلقائي بعد التشغيل: من دقيقة لـ 24 ساعة. القناة ماينفعش يكون لها تايمر وجدولة، والمخرج المقفول ماينفعش يكون له تايمر.',
++    timerLocked:'مخرج مقفول. افتحه الأول قبل ما تسجل تايمر.',
++    timerConflict:'مسجل في الجدولة. احذف جدولته الأول.',
++    timerRegisteredNote:'مسجل · احفظ للتطبيق',
++    timerUnregistered:'مش مسجل · احفظ صفر للحذف.',
++    timerLive:'التايمر 00:00:00',
++    wdMon:'الاتنين',
++    wdTue:'التلات',
++    wdWed:'الأربع',
++    wdThu:'الخميس',
++    wdFri:'الجمعة',
++    wdSat:'السبت',
++    wdSun:'الحد',
++    lastTrip:'آخر قطع',
++    sensorErrors:'أخطاء الحساسات',
++    none:'مفيش',
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
+     };
+   const messages={en,ar};
+-  const api={messages,text:(language,key,args={})=>{
++  let active='en';
++  const api={messages,
++    set:next=>{active=next==='ar'?'ar':'en';},
++    t:(key,args={})=>api.text(active,key,args),
++    text:(language,key,args={})=>{
+     const table=messages[language]||en,value=table[key]!==undefined?table[key]:en[key];
+     if(value===undefined)throw Error('Missing translation: '+key);
+     return value.replace(/\{(\w+)\}/g,(_,name)=>String(args[name]??''));
+diff --git a/source/standalone/ui/index.html b/source/standalone/ui/index.html
+index 6a7e5fb..cb239ca 100644
+--- a/source/standalone/ui/index.html
++++ b/source/standalone/ui/index.html
+@@ -19,21 +19,28 @@
+   #log{height:600px}
+   @media(max-width:900px){#timer-editor{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:480px){#timer-editor{grid-template-columns:1fr}}
+   .header-tools button{background:transparent;border-color:#334155;color:#fff;font-size:12px;padding:6px 10px;font-weight:600}
+-  #device[dir=rtl] input{text-align:right}#device[dir=rtl] .sensor b,#device[dir=rtl] .summary b{direction:ltr}#device[dir=rtl] .time{unicode-bidi:plaintext}
++  #subnav{display:flex;gap:8px;flex-wrap:wrap;margin:-12px 0 24px;direction:ltr}
++  #wifi,#mqtt,#firmware,#logs{direction:ltr}
++  html[dir=rtl] #wifi input,html[dir=rtl] #mqtt input,html[dir=rtl] #firmware input,html[dir=rtl] #logs input{text-align:left}
++  html[dir=rtl] #mqtt input[type=checkbox]{margin-left:0;margin-right:8px}#subnav[hidden]{display:none}#subnav button{border:1px solid var(--line);background:#fff;font-size:12px;padding:7px 13px;border-radius:999px}#subnav button[aria-selected=true]{background:#0f172a;color:#fff;border-color:#0f172a}
++  html[dir=rtl] input[type=checkbox]{margin-right:0;margin-left:8px}html[dir=rtl] input{text-align:right}html[dir=rtl] .sensor b,html[dir=rtl] .summary b,html[dir=rtl] .meta b,html[dir=rtl] #log,html[dir=rtl] .hash{direction:ltr;unicode-bidi:isolate}html[dir=rtl] .time{unicode-bidi:plaintext}
+ </style>
+ <header><h1>MTTL-W01</h1><div class="header-tools"><span class="badge" data-i18n="simulation">PC simulation</span><button id="language" type="button" hidden>العربية</button></div></header>
+ <main>
+   <p class="note" data-i18n="note">A preview of controls and setup. Values are simulated; this page does not connect to a power strip, Wi-Fi or MQTT.</p>
+   <nav role="tablist" aria-label="Menu" data-i18n-aria="menu">
+     <button role="tab" aria-selected="true" aria-controls="device" id="tab-device" data-i18n="device">Power strip</button>
+-    <button role="tab" aria-selected="false" aria-controls="wifi" id="tab-wifi" data-i18n="wifi">Wi-Fi setup</button>
+-    <button role="tab" aria-selected="false" aria-controls="mqtt" id="tab-mqtt" data-i18n="mqtt">HA · MQTT</button>
+     <button role="tab" aria-selected="false" aria-controls="protection" id="tab-protection" data-i18n="protection">Protection</button>
+     <button role="tab" aria-selected="false" aria-controls="scheduler" id="tab-scheduler" data-i18n="scheduler">Scheduler</button>
+     <button role="tab" aria-selected="false" aria-controls="timer" id="tab-timer" data-i18n="timer">Timer</button>
+-    <button role="tab" aria-selected="false" aria-controls="firmware" id="tab-firmware" data-i18n="firmware">Firmware</button>
+-    <button role="tab" aria-selected="false" aria-controls="logs" id="tab-logs" data-i18n="logs">Logs</button>
++    <button role="tab" aria-selected="false" aria-controls="settings" id="tab-settings" data-i18n="settings">Settings</button>
+   </nav>
++  <div id="subnav" role="tablist" aria-label="Settings" data-i18n-aria="settings" hidden>
++    <button role="tab" aria-selected="true" aria-controls="wifi" id="sub-wifi" data-i18n="wifi">Wi-Fi setup</button>
++    <button role="tab" aria-selected="false" aria-controls="mqtt" id="sub-mqtt" data-i18n="mqtt">HA · MQTT</button>
++    <button role="tab" aria-selected="false" aria-controls="firmware" id="sub-firmware" data-i18n="firmware">Firmware</button>
++    <button role="tab" aria-selected="false" aria-controls="logs" id="sub-logs" data-i18n="logs">Logs</button>
++  </div>
+   <section id="device" class="active" role="tabpanel" aria-labelledby="tab-device">
+     <div class="panel">
+       <div class="device-heading"><div class="device-title"><h2 id="device-name">Living room power strip</h2><button id="edit-names" class="edit-name" type="button" data-i18n-aria="rename" aria-label="Edit names">✎</button></div></div>
+@@ -55,12 +62,12 @@
+     <div class="channels" id="channels"></div>
+     <div class="row"><button id="hold" data-i18n="hold">Simulate holding the main button for 10 seconds</button><span class="muted" data-i18n="holdHint">Open Wi-Fi setup mode</span></div>
+   </section>
+-  <section id="wifi" role="tabpanel" aria-labelledby="tab-wifi">
++  <section id="wifi" role="tabpanel" aria-labelledby="sub-wifi">
+     <div class="panel"><h2 data-i18n="wifi">Wi-Fi setup</h2><p class="muted" data-i18n="wifiHint">Setup AP address: 192.168.4.1 · Scan for Wi-Fi networks, then select one to connect.</p>
+       <form id="wifi-form"><button type="button" id="scan" data-i18n="scan">Simulate Wi-Fi scan</button><label for="ssid" data-i18n="network">Wi-Fi SSID</label><select id="ssid" required><option value="" data-i18n="scanFirst">Scan to select</option></select><label for="wifi-password" data-i18n="password">Password</label><input id="wifi-password" type="password" maxlength="64" autocomplete="off"><div class="row"><button class="primary" data-i18n="connect">Simulate connection</button></div><div id="wifi-status" class="status" role="status"></div></form>
+     </div>
+   </section>
+-  <section id="mqtt" role="tabpanel" aria-labelledby="tab-mqtt">
++  <section id="mqtt" role="tabpanel" aria-labelledby="sub-mqtt">
+     <div class="panel"><h2 data-i18n="mqttTitle">Home Assistant · MQTT</h2><form id="mqtt-form">
+       <label for="broker" data-i18n="broker">Broker</label><input id="broker" placeholder="192.168.0.4" required maxlength="253">
+       <label for="port" data-i18n="port">Port</label><input id="port" type="number" min="1" max="65535" value="1883" required>
+@@ -86,14 +93,14 @@
+     <div class="panel"><h2 data-i18n="scheduler">Scheduler</h2><form id="schedule-form"><div id="schedule-editor"></div><div id="schedule-status" class="status" role="status"></div></form></div>
+   </section>
+   <section id="timer" role="tabpanel" aria-labelledby="tab-timer"><div class="panel"><h2 data-i18n="timer">Timer</h2><form id="timer-form"><div id="timer-editor"></div><div id="timer-status" class="status" role="status"></div></form></div></section>
+-  <section id="firmware" role="tabpanel" aria-labelledby="tab-firmware">
++  <section id="firmware" role="tabpanel" aria-labelledby="sub-firmware">
+     <div class="panel"><h2 data-i18n="firmware">Firmware</h2>
+       <div class="sensor"><span data-i18n="currentVersion">Current version</span><b id="current-firmware-version">2.1.0</b></div>
+       <p class="muted" data-i18n="firmwareHint">Current: standalone firmware preview · Inspect the selected file format and checksum on this PC.</p>
+       <form id="firmware-form">
+         <label for="firmware-picker" data-i18n="firmwareFile">Firmware file (.fwr / Image2 .bin)</label><input id="firmware-file" type="file" accept=".fwr,.bin" hidden>
+         <div class="file-picker"><button id="firmware-picker" type="button" data-i18n="chooseFirmwareFile">Choose file</button><span id="firmware-selected" class="muted" aria-live="polite">No file selected</span></div>
+-        <label for="firmware-expected" data-i18n="expectedHash">Expected SHA-256 (optional)</label><input id="firmware-expected" data-i18n-placeholder="64-digit SHA-256 provided by the publisher" placeholder="64-digit SHA-256 provided by the publisher" maxlength="64" autocomplete="off">
++        <label for="firmware-expected" data-i18n="expectedHash">Expected SHA-256 (optional)</label><input id="firmware-expected" data-i18n-placeholder="hashPlaceholder" placeholder="64-digit SHA-256 provided by the publisher" maxlength="64" autocomplete="off">
+         <div class="row"><button id="firmware-verify" type="button" data-i18n="verifyFile">Inspect file</button><button id="firmware-update" class="primary" data-i18n="updateMock" disabled>Simulate update</button></div>
+       </form>
+       <div id="firmware-info" class="firmware-info" hidden>
+@@ -110,7 +117,7 @@
+       <p class="muted" data-i18n="firmwareLimit">Passing inspection does not guarantee boot compatibility. This page does not transmit the file to a server or device; flash writing and restart are not connected.</p>
+     </div>
+   </section>
+-  <section id="logs" role="tabpanel" aria-labelledby="tab-logs"><div class="panel"><h2 data-i18n="eventLog">Event log</h2><label><input id="autoscroll" type="checkbox" checked><span data-i18n="autoscroll">Auto-scroll</span></label><pre id="log" aria-label="Event log" data-i18n-aria="eventLog"></pre></div></section>
++  <section id="logs" role="tabpanel" aria-labelledby="sub-logs"><div class="panel"><h2 data-i18n="eventLog">Event log</h2><label><input id="autoscroll" type="checkbox" checked><span data-i18n="autoscroll">Auto-scroll</span></label><pre id="log" aria-label="Event log" data-i18n-aria="eventLog"></pre></div></section>
+ </main>
+ <script src="i18n.js"></script>
+ <script src="scheduler.js"></script>
+diff --git a/source/standalone/ui/live.js b/source/standalone/ui/live.js
+index f48ed14..b90edf6 100644
+--- a/source/standalone/ui/live.js
++++ b/source/standalone/ui/live.js
+@@ -28,23 +28,23 @@
+       const fresh=await request('/api/config');
+       const desired=(fresh.button_lock||0)^(1<<i);
+       await storeConfiguration({...fresh,button_lock:desired});
+-      logEvent('Lock saved. A locked outlet is not switched by the buttons, the web UI, HA, its timer or the schedules.');
+-    }catch(_){logEvent('Lock save could not be confirmed; check the device state.');}
++      logEvent(tEn('logLockSaved'));
++    }catch(_){logEvent(tEn('logLockFailed'));}
+     finally{lockPending.delete(i);release();render();}
+   }
+   // Bounded browser-session diagnostics, never configuration or credentials.
+   const logRows=[];let lastObserved=null;
+-  function renderLog(){const box=el('log');box.textContent=logRows.length?logRows.map(row=>'['+row.at+'] '+row.en).join('\n'):'Browser-session events only; not stored in device.';if(el('autoscroll').checked)box.scrollTop=box.scrollHeight;}
++  function renderLog(){const box=el('log');box.textContent=logRows.length?logRows.map(row=>'['+row.at+'] '+row.en).join('\n'):tEn('logEmpty');if(el('autoscroll').checked)box.scrollTop=box.scrollHeight;}
+   function logEvent(en){logRows.push({at:new Date().toLocaleTimeString(),en});if(logRows.length>200)logRows.shift();renderLog();}
+   function observe(){
+     const current={available:!!snapshot,network:snapshot?.state,mqtt:deviceSnapshot?.mqtt_state,uptime:snapshot?.uptime_ms,on:deviceSnapshot?.channels?.map(c=>c.on)};
+     if(lastObserved){
+-      if(current.available!==lastObserved.available)logEvent(current.available?'Device API recovered':'Device API unavailable');
+-      if(current.available&&lastObserved.available&&current.uptime<lastObserved.uptime)logEvent('Device reboot observed');
+-      if(Number.isInteger(current.network)&&current.network!==lastObserved.network)logEvent('Wi-Fi state: '+t('netState'+current.network));
+-      if(Number.isInteger(current.mqtt)&&current.mqtt!==lastObserved.mqtt)logEvent('MQTT state code: '+current.mqtt);
+-      if(current.on&&lastObserved.on)current.on.forEach((on,i)=>{if(typeof on==='boolean'&&on!==lastObserved.on[i])logEvent('Channel '+(i+1)+' confirmed state: '+(on?'ON':'OFF'));});
+-    }else if(current.available)logEvent('Device state observation started');
++      if(current.available!==lastObserved.available)logEvent(current.available?tEn('logApiOk'):tEn('logApiDown'));
++      if(current.available&&lastObserved.available&&current.uptime<lastObserved.uptime)logEvent(tEn('logReboot'));
++      if(Number.isInteger(current.network)&&current.network!==lastObserved.network)logEvent(tEn('logWifiState',{state:tEn('netState'+current.network)}));
++      if(Number.isInteger(current.mqtt)&&current.mqtt!==lastObserved.mqtt)logEvent(tEn('logMqttCode',{code:current.mqtt}));
++      if(current.on&&lastObserved.on)current.on.forEach((on,i)=>{if(typeof on==='boolean'&&on!==lastObserved.on[i])logEvent(tEn('logChannelState',{number:i+1,state:on?tEn('stateOn'):tEn('stateOff')}));});
++    }else if(current.available)logEvent(tEn('logObserveStart'));
+     lastObserved=current;
+   }
+   function startEvents(){
+@@ -52,16 +52,18 @@
+     if(snapshot?.state!==5){if(events)events.close();events=null;eventConnected=false;relaySnapshot=null;return;}
+     if(events||typeof EventSource==='undefined')return;
+     events=new EventSource('/api/events');
+-    events.onopen=()=>{eventConnected=true;logEvent('Live state stream connected');};events.onerror=()=>{if(eventConnected)logEvent('Live stream interrupted; waiting for reconnect');eventConnected=false;relaySnapshot=null;};
++    events.onopen=()=>{eventConnected=true;logEvent(tEn('logStreamOpen'));};events.onerror=()=>{if(eventConnected)logEvent(tEn('logStreamDown'));eventConnected=false;relaySnapshot=null;};
+     events.addEventListener('relay',event=>{try{const d=JSON.parse(event.data);if(![d.known,d.on,d.fault].every(Number.isInteger)||d.known<0||d.known>15||d.on<0||d.on>15||d.fault<0)throw Error('Relay');relaySnapshot=d;applyRelay();render();}catch(_){eventConnected=false;}});
+     events.addEventListener('device',event=>{try{const d=JSON.parse(event.data);if(!Array.isArray(d.channels)||d.channels.length!==4)throw Error('Device');deviceSnapshot=d;applyRelay();render();}catch(_){eventConnected=false;}});
+   }
+   try{preferences=JSON.parse(localStorage.getItem(key)||'{}');}catch(_){preferences={};}
+   const t=(name,args={})=>MttlI18n.text(lang,name,args);
++  /* Wi-Fi, MQTT, Firmware and Logs are English-only, even in Arabic mode. */
++  const tEn=(name,args={})=>MttlI18n.text('en',name,args);
+   function applyLanguage(){
+     const ar=lang==='ar';
+     document.documentElement.lang=ar?'ar':'en';
+-    const panel=el('device');if(panel)panel.dir=ar?'rtl':'ltr';
++    document.documentElement.dir=ar?'rtl':'ltr';
+     const button=el('language');if(button){button.hidden=!configuration;button.textContent=ar?'English':'العربية';button.setAttribute('aria-label',ar?'Switch to English':'التبديل إلى العربية');}
+   }
+   function setLanguage(next){lang=next==='ar'?'ar':'en';applyLanguage();translate();}
+@@ -103,7 +105,7 @@ async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(sn
+     timerEditor.ready();
+     observe();
+     el('protection-apply').disabled=!configuration||![2,5].includes(snapshot?.state)||protectionSaving;
+-    {const p=deviceSnapshot?.protection,names=['Temperature','Current','Power'];const items=bits=>names.filter((_,i)=>bits&(1<<i)).join(', ');const where=bits=>{const list=[];for(let i=0;i<4;i++)if(bits&(1<<i))list.push(name(i));return list.length?' · '+list.join(', '):'';};el('protection-state').textContent=p?('Last trip: '+(p.reason?items(p.reason)+where(p.channel_mask):'None')+' · '+'Sensor errors: '+(p.error?items(p.error):'None')):t('apiUnavailable');}
++    {const p=deviceSnapshot?.protection,names=[t('temperature'),t('current'),t('power')];const items=bits=>names.filter((_,i)=>bits&(1<<i)).join(', ');const where=bits=>{const list=[];for(let i=0;i<4;i++)if(bits&(1<<i))list.push(name(i));return list.length?' · '+list.join(', '):'';};el('protection-state').textContent=p?(t('lastTrip')+': '+(p.reason?items(p.reason)+where(p.channel_mask):t('none'))+' · '+t('sensorErrors')+': '+(p.error?items(p.error):t('none'))):t('apiUnavailable');}
+     ['all-on','all-off'].forEach(id=>el(id).disabled=controlBusy||!deviceSnapshot?.hardware_ready||!snapshot?.hardware_ready||snapshot?.state!==5);
+     el('device-name').textContent=name(-1);
+     for(let i=0;i<4;i++){
+@@ -140,22 +142,36 @@ async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(sn
+     el('connected-ssid').textContent=snapshot?hexText(snapshot.ssid_hex)||'—':'—';
+     el('rssi').textContent=(snapshot&&Number.isInteger(snapshot.rssi)?snapshot.rssi:'—')+' dBm';
+     {const s=Math.floor((snapshot?.uptime_ms||0)/1000);el('uptime').textContent=snapshot?t('duration',{days:Math.floor(s/86400),hours:Math.floor(s/3600)%24,minutes:Math.floor(s/60)%60,seconds:s%60}):'—';}
+-    el('wifi-status').textContent=t(wifiMessage||('netState'+(snapshot?.state??0)));
+-    el('mqtt-status').textContent=t('netState'+([0,1,3,3,3,5,6][deviceSnapshot?.mqtt_state]??0));
++    el('wifi-status').textContent=tEn(wifiMessage||('netState'+(snapshot?.state??0)));
++    el('mqtt-status').textContent=tEn('netState'+([0,1,3,3,3,5,6][deviceSnapshot?.mqtt_state]??0));
+   }
+   function translate(){
++    MttlI18n.set(lang);
+     scheduleEditor.translate();
+     timerEditor.translate();
+     applyLanguage();
+     document.title='MTTL-W01';for(let i=1;i<=4;i++)el('channel-name-label-'+i).textContent=t('channelName',{number:i});
+     for(const [attr,target] of [['data-i18n',null],['data-i18n-placeholder','placeholder'],['data-i18n-aria','aria-label']])document.querySelectorAll('['+attr+']').forEach(n=>target?n.setAttribute(target,t(n.getAttribute(attr))):n.textContent=t(n.getAttribute(attr)));
+-    el('scan').textContent=t('realScan');document.querySelector('#wifi-form button.primary').textContent=t('realConnect');
+-    el('current-firmware-version').textContent='2.1.0';el('firmware-status').textContent=t('integrationPending');el('mqtt-status').textContent=t('integrationPending');el('firmware-selected').textContent=t('noSelectedFile');
+-    document.querySelector('#mqtt-form button.primary').textContent='Save to device';
++    el('scan').textContent=tEn('realScan');document.querySelector('#wifi-form button.primary').textContent=tEn('realConnect');
++    el('current-firmware-version').textContent='2.1.0';el('firmware-status').textContent=tEn('integrationPending');el('mqtt-status').textContent=tEn('integrationPending');el('firmware-selected').textContent=tEn('noSelectedFile');
++    document.querySelector('#mqtt-form button.primary').textContent=tEn('mqttSave');
++    if(globalThis.MttlOta)MttlOta.render();
+     renderLog();render();
+   }
+   let initialTabPending=true;
+-  function selectTab(id){document.querySelectorAll('section').forEach(s=>s.classList.toggle('active',s.id===id));document.querySelectorAll('[role=tab]').forEach(b=>b.setAttribute('aria-selected',String(b.getAttribute('aria-controls')===id)));}
++  /* Settings holds the four setup panels; the main nav shows one button for
++   * them and #subnav picks the panel. Section ids stay wifi/mqtt/firmware/logs
++   * so hashes and the rest of the controller keep working. */
++  const groups={wifi:'settings',mqtt:'settings',firmware:'settings',logs:'settings'};let settingsTab='wifi';
++  function selectTab(id){
++    if(id==='settings')id=settingsTab;
++    const group=groups[id]||'';
++    if(group)settingsTab=id;
++    document.querySelectorAll('section').forEach(s=>s.classList.toggle('active',s.id===id));
++    const active=group||id;
++    document.querySelectorAll('nav [role=tab]').forEach(b=>b.setAttribute('aria-selected',String(b.getAttribute('aria-controls')===active)));
++    const sub=el('subnav');if(sub){sub.hidden=!group;document.querySelectorAll('#subnav [role=tab]').forEach(b=>b.setAttribute('aria-selected',String(b.getAttribute('aria-controls')===id)));}
++  }
+   document.querySelectorAll('[role=tab]').forEach(button=>button.onclick=()=>{initialTabPending=false;selectTab(button.getAttribute('aria-controls'));});
+   el('edit-names').onclick=()=>edit();el('cancel-names').onclick=()=>{el('name-editor').hidden=true;};
+   el('language').onclick=async()=>{
+@@ -163,7 +179,7 @@ async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(sn
+     const previous=lang,next=previous==='ar'?'en':'ar',code=next==='ar'?2:1;
+     setLanguage(next);
+     try{await storeConfiguration({...configuration,language:code});}
+-    catch(_){setLanguage(previous);logEvent('Language save could not be confirmed; check the device state.');}
++    catch(_){setLanguage(previous);logEvent(tEn('logLangFailed'));}
+   };
+   el('name-form').oncompositionstart=()=>{composing=true;};el('name-form').oncompositionend=()=>{composing=false;};
+   el('name-form').onsubmit=async event=>{event.preventDefault();if(composing)return;const device=el('device-name-input').value,channels=Array.from({length:4},(_,i)=>el('channel-name-'+(i+1)).value);if(![device,...channels].every(goodName)){el('name-status').textContent=t('nameInvalid');return;}if(configuration){try{await storeConfiguration({...configuration,device:device.trim(),channels:channels.map(x=>x.trim())});el('name-status').textContent=t('nameSavedFlash');}catch(_){el('name-status').textContent=t('nameSaveFailed');return;}}else el('name-status').textContent=t('browserNames');preferences.deviceName=device.trim();preferences.channelNames=channels.map(x=>x.trim());save();render();};
+@@ -184,7 +200,7 @@ async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(sn
+         await new Promise(resolve=>setTimeout(resolve,eventConnected?100:200));
+       }
+       throw Error('Command not confirmed');
+-    }catch(_){try{const actual=await request('/api/device');if(Array.isArray(actual.channels)&&actual.channels.length===4)deviceSnapshot=actual;}catch(_){}logEvent('Control failed; showing last confirmed state');}finally{for(let i=0;i<4;i++)if(channel===4||i===channel)optimistic.delete(i);pendingChannels.delete(channel);controlBusy=pendingChannels.size>0;release();render();}
++    }catch(_){try{const actual=await request('/api/device');if(Array.isArray(actual.channels)&&actual.channels.length===4)deviceSnapshot=actual;}catch(_){}logEvent(tEn('logControlFailed'));}finally{for(let i=0;i<4;i++)if(channel===4||i===channel)optimistic.delete(i);pendingChannels.delete(channel);controlBusy=pendingChannels.size>0;release();render();}
+   }
+   el('all-on').onclick=()=>control(4,1);el('all-off').onclick=()=>control(4,0);
+   let protectionSaving=false;
+@@ -196,11 +212,11 @@ const timerEditor=MttlTimer.mount({available:()=>!!configuration&&[2,5].includes
+     const p={enabled:0,temperature:Number(el('protect-temperature').value),current:Math.round(Number(el('protect-current').value)*1000),power:Number(el('protect-power').value)};
+     ['temperature','current','power'].forEach((k,i)=>{if(el('protect-'+k+'-enabled').checked)p.enabled|=1<<i;});
+     protectionSaving=true;render();
+-    try{await storeConfiguration({...configuration,protection:p});el('protection-save-status').textContent='Saved in device flash';}catch(_){el('protection-save-status').textContent='Save failed; settings not confirmed';}finally{protectionSaving=false;render();}
++    try{await storeConfiguration({...configuration,protection:p});el('protection-save-status').textContent=t('nameSavedFlash');}catch(_){el('protection-save-status').textContent=t('saveFailed');}finally{protectionSaving=false;render();}
+   };
+   document.querySelectorAll('#mqtt-form input,#mqtt-form button').forEach(node=>node.disabled=true);
+   el('firmware-form').onsubmit=event=>event.preventDefault();
+-  el('mqtt-form').onsubmit=async event=>{event.preventDefault();if(!configuration)return;const password=el('mqtt-password').value;el('mqtt-password').value='';try{await storeConfiguration({...configuration,broker:el('broker').value,port:Number(el('port').value),user:el('user').value,enabled:!!el('enabled').checked},password,!password);el('mqtt-status').textContent='Saved in flash; plaintext IPv4 broker only';}catch(_){el('mqtt-status').textContent=t('apiUnavailable');}};
++  el('mqtt-form').onsubmit=async event=>{event.preventDefault();if(!configuration)return;const password=el('mqtt-password').value;el('mqtt-password').value='';try{await storeConfiguration({...configuration,broker:el('broker').value,port:Number(el('port').value),user:el('user').value,enabled:!!el('enabled').checked},password,!password);el('mqtt-status').textContent=tEn('logSavedBroker');}catch(_){el('mqtt-status').textContent=tEn('apiUnavailable');}};
+   el('scan').onclick=async()=>{
+     el('scan').disabled=true;wifiMessage='scanProgress';render();
+     try{await request('/api/scan',{method:'POST'});let result;
+@@ -217,6 +233,6 @@ const timerEditor=MttlTimer.mount({available:()=>!!configuration&&[2,5].includes
+   async function poll(){try{const result=await request('/api/status');if(!Number.isInteger(result.state)||result.state<0||result.state>6||!Number.isInteger(result.uptime_ms))throw Error('State');snapshot=result;statusAt=Date.now();}catch(_){snapshot=null;if(!controlBusy)deviceSnapshot=null;}if(snapshot){startEvents();if(!controlBusy&&!eventConnected){try{const d=await request('/api/device');if(!Array.isArray(d.channels)||d.channels.length!==4)throw Error('Device');if(!controlBusy&&!eventConnected)deviceSnapshot=d;}catch(_){if(!controlBusy)deviceSnapshot=null;}}if(!configuration){try{const c=await request('/api/config');if(!Array.isArray(c.channels)||c.channels.length!==4||typeof c.broker!=='string')throw Error('Config');configuration=c;applyLanguage();const savedLang=c.language===2?'ar':'en';if(savedLang!==lang){lang=savedLang;translate();}el('broker').value=c.broker;el('port').value=c.port;el('user').value=c.user;el('enabled').checked=c.enabled;loadProtection();timerEditor.load(c.timer_minutes);scheduleEditor.load(c.schedule_hex||MttlSchedule.encode(MttlSchedule.defaults()));}catch(_){configuration=null;}}}document.querySelectorAll('#mqtt-form input,#mqtt-form button').forEach(node=>node.disabled=!configuration||![2,5].includes(snapshot?.state));render();setTimeout(poll,eventConnected?20000:1000);}
+   selectTab('wifi');translate();
+   const initialPoll=poll;
+-  poll=async function(){await initialPoll();if(initialTabPending&&snapshot){selectTab(typeof location!=='undefined'&&location.hash==='#firmware'?'firmware':snapshot.state===5?'device':'wifi');initialTabPending=false;}};
++  poll=async function(){await initialPoll();if(initialTabPending&&snapshot){const hash=typeof location!=='undefined'?location.hash.slice(1):'',node=hash?el(hash):null;selectTab(node&&node.tagName==='SECTION'||hash==='settings'?hash:snapshot.state===5?'device':'wifi');initialTabPending=false;}};
+   poll();
+ })();
+diff --git a/source/standalone/ui/ota-live.js b/source/standalone/ui/ota-live.js
+index 80b5360..5051b01 100644
+--- a/source/standalone/ui/ota-live.js
++++ b/source/standalone/ui/ota-live.js
+@@ -2,13 +2,13 @@
+ (function(){
+  'use strict';
+  const el=id=>document.getElementById(id);let ready=false,busy=false,result=null,detail='';
+-const words=['Keep power on. Supported: standalone FWR, stock 1.0.66 or local-patched 1.0.68. Restoring removes standalone web/direct HA.','Firmware file (.fwr)','Update','Ready to update','Not ready to update','Select a valid .fwr file.','Uploading… Keep power on.','Update completed. Reconnecting to Wi-Fi.','Result uncertain. Reconnect and check before retrying.','Update and restart?\nRestoring 1.0.66/1.0.68 removes standalone web/direct HA. Use original provisioning or backend connectivity afterwards.','Restore completed. Check original provisioning or backend connectivity.','This firmware is already installed. No update or reboot is needed.'];
+- words.push('Update completed, but automatic reconnection timed out. Check the device IP and refresh the page.');
+- let currentBuild=null,reconnecting=false,reconnectUntil=0;
+- function text(){return words;}
++const t=(key,args={})=>MttlI18n.t(key,args);
++const words=()=>[t('otaHint'),t('otaFile'),t('otaUpdate'),t('otaReady'),t('otaNotReady'),t('otaSelectFile'),t('otaUploading'),t('otaDone'),t('otaUncertain'),t('otaConfirm'),t('otaRestoreDone'),t('otaInstalled'),t('otaTimeout')];
++let currentBuild=null,reconnecting=false,reconnectUntil=0;
++ function text(){return words();}
+  const pendingKey='mttl.ota.pending-build';
+  function remember(id){try{if(id)localStorage.setItem(pendingKey,id);else localStorage.removeItem(pendingKey);}catch(_){}}
+- function render(){const w=text();el('ota-hint').textContent=w[0];el('ota-file-label').textContent=w[1];el('firmware-update').textContent=w[2];el('firmware-status').textContent=w[result===null?(ready?3:4):result]+(detail?' '+detail:'');el('firmware-picker').disabled=busy||reconnecting;el('firmware-update').disabled=busy||reconnecting||!ready;el('firmware-selected').textContent=el('firmware-file').files[0]?.name||MttlI18n.text('en','noSelectedFile');}
++ function render(){const w=text();el('ota-hint').textContent=w[0];el('ota-file-label').textContent=w[1];el('firmware-update').textContent=w[2];el('firmware-status').textContent=w[result===null?(ready?3:4):result]+(detail?' '+detail:'');el('firmware-picker').disabled=busy||reconnecting;el('firmware-update').disabled=busy||reconnecting||!ready;el('firmware-selected').textContent=el('firmware-file').files[0]?.name||t('noSelectedFile');}
+  async function reconnect(){
+   if(Date.now()>=reconnectUntil){reconnecting=false;result=12;render();return;}
+   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),5000);
+@@ -55,11 +55,12 @@ const words=['Keep power on. Supported: standalone FWR, stock 1.0.66 or local-pa
+   ready=status.ota_ready===true;const build=/^[0-9a-z][0-9a-z._-]{3,31}$/.test(status.build_id||'')?status.build_id:null;
+   currentBuild=build;if(el('current-build-id'))el('current-build-id').textContent=build||'—';
+   let expected;try{expected=localStorage.getItem(pendingKey);}catch(_){}
+-  if(expected&&build){detail='Build verification: '+(expected===build?'OK · ':'NOT MATCHED · ')+build;if(expected===build)remember(null);}
++  if(expected&&build){detail=t(expected===build?'otaVerifyOk':'otaVerifyFail',{build});if(expected===build)remember(null);}
+   }catch(_){ready=false;statusTimer=setTimeout(refreshStatus,3000);}
+   finally{clearTimeout(timeout);statusPending=false;render();}
+  }
+  document.querySelector?.('[aria-controls="firmware"]')?.addEventListener('click',refreshStatus);
+  document.addEventListener?.('visibilitychange',()=>{if(!document.hidden)refreshStatus();});
+  refreshStatus();render();
++ globalThis.MttlOta={render,refreshStatus};
+ })();
+diff --git a/source/standalone/ui/scheduler.js b/source/standalone/ui/scheduler.js
+index 7fae794..7eca261 100644
+--- a/source/standalone/ui/scheduler.js
++++ b/source/standalone/ui/scheduler.js
+@@ -1,6 +1,7 @@
+ /* Shared preview/device editor. Fixed 50-byte codec, eight bounded rules. */
+ (function(root){
+  'use strict';
++ const t=(key,args={})=>root.MttlI18n.t(key,args);
+  const empty=()=>({minute:0,mode:0,day:0,channel:0,on:0});
+  const defaults=()=>({timezone:540,rules:Array.from({length:8},empty)});
+  function encode(c){const b=new Uint8Array(50),v=new DataView(b.buffer);if(!Number.isInteger(c.timezone)||c.timezone< -720||c.timezone>840||c.timezone%15||c.rules.length!==8)throw Error('Schedule');v.setInt16(0,c.timezone,true);
+@@ -12,23 +13,23 @@
+   function node(tag,value){const n=document.createElement(tag);if(value)n.textContent=value;if(['input','select','button'].includes(tag))n.disabled=busy||!loaded;return n;}
+   function select(items,value,change){const n=node('select');for(const [key,label,disabled]of items){const o=node('option',label);o.value=key;o.disabled=!!disabled;n.append(o);}n.value=String(value);n.onchange=()=>{dirty=true;change(Number(n.value));};return n;}
+   function field(parent,title,input){const l=node('label',title);l.append(input);parent.append(l);}
+-  function render(){box.replaceChildren();const hint=node('p','8 rules. Requires NTP. Missed events and missing dates are skipped. A locked outlet is not switched by its schedules either.');hint.className='muted';box.append(hint);
+-   const tz=select(Array.from({length:105},(_,i)=>{const m=-720+i*15,a=Math.abs(m);return [m,'UTC'+(m<0?'-':'+')+String(Math.floor(a/60)).padStart(2,'0')+':'+String(a%60).padStart(2,'0')];}),draft.timezone,x=>draft.timezone=x);field(box,'Time zone · manual DST',tz);
+-   draft.rules.forEach((r,i)=>{if(!r.mode)return;const card=node('div');card.className='name-editor';const head=node('div');head.className='row';head.append(node('b','Rule '+(i+1)));const enabled=node('input');enabled.type='checkbox';enabled.checked=!!(r.mode&128);enabled.onchange=()=>{dirty=true;r.mode=(r.mode&127)|(enabled.checked?128:0);};const lab=node('label','Enabled');lab.prepend(enabled);head.append(lab);const del=node('button','Delete');del.type='button';del.onclick=()=>{draft.rules.splice(i,1);draft.rules.push(empty());dirty=true;render();};head.append(del);card.append(head);
+-    field(card,'Repeat',select([[1,'Daily'],[2,'Weekly'],[3,'Monthly date'],[4,'Last day of month']],r.mode&127,x=>{r.mode=x|(r.mode&128);r.day=x===2?127:x===3?1:0;render();}));
+-    if((r.mode&127)===2){const days=node('div');days.className='row';['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach((name,k)=>{const l=node('label',name),c=node('input');c.type='checkbox';c.checked=!!(r.day&(1<<k));c.onchange=()=>{dirty=true;r.day=c.checked?r.day|(1<<k):r.day&~(1<<k);};l.prepend(c);days.append(l);});card.append(days);}
+-    if((r.mode&127)===3)field(card,'Day',select(Array.from({length:31},(_,k)=>[k+1,String(k+1)]),r.day,x=>r.day=x));
++  function render(){box.replaceChildren();const hint=node('p',t('scheduleHint'));hint.className='muted';box.append(hint);
++   const tz=select(Array.from({length:105},(_,i)=>{const m=-720+i*15,a=Math.abs(m);return [m,'UTC'+(m<0?'-':'+')+String(Math.floor(a/60)).padStart(2,'0')+':'+String(a%60).padStart(2,'0')];}),draft.timezone,x=>draft.timezone=x);field(box,t('timeZone'),tz);
++   draft.rules.forEach((r,i)=>{if(!r.mode)return;const card=node('div');card.className='name-editor';const head=node('div');head.className='row';head.append(node('b',t('rule',{number:i+1})));const enabled=node('input');enabled.type='checkbox';enabled.checked=!!(r.mode&128);enabled.onchange=()=>{dirty=true;r.mode=(r.mode&127)|(enabled.checked?128:0);};const lab=node('label',t('enabledLabel'));lab.prepend(enabled);head.append(lab);const del=node('button',t('delete'));del.type='button';del.onclick=()=>{draft.rules.splice(i,1);draft.rules.push(empty());dirty=true;render();};head.append(del);card.append(head);
++    field(card,t('repeat'),select([[1,t('daily')],[2,t('weekly')],[3,t('monthlyDate')],[4,t('lastDay')]],r.mode&127,x=>{r.mode=x|(r.mode&128);r.day=x===2?127:x===3?1:0;render();}));
++    if((r.mode&127)===2){const days=node('div');days.className='row';['wdMon','wdTue','wdWed','wdThu','wdFri','wdSat','wdSun'].forEach((name,k)=>{const l=node('label',t(name)),c=node('input');c.type='checkbox';c.checked=!!(r.day&(1<<k));c.onchange=()=>{dirty=true;r.day=c.checked?r.day|(1<<k):r.day&~(1<<k);};l.prepend(c);days.append(l);});card.append(days);}
++    if((r.mode&127)===3)field(card,t('day'),select(Array.from({length:31},(_,k)=>[k+1,String(k+1)]),r.day,x=>r.day=x));
+     /* Native time inputs follow the browser/OS locale, not dashboard language. */
+     const time=node('div');time.className='schedule-time';let hour,minute,period;const update=()=>{dirty=true;r.minute=hour.validity.valid&&minute.validity.valid?(Number(hour.value)%12+Number(period.value)*12)*60+Number(minute.value):-1;};
+-    function part(name,min,max,value){const n=node('input');n.type='number';n.min=min;n.max=max;n.step=1;n.required=true;n.value=String(value).padStart(2,'0');n.id='schedule-'+name+'-'+i;n.ariaLabel=name;n.oninput=update;return n;}
++    function part(name,min,max,value){const n=node('input');n.type='number';n.min=min;n.max=max;n.step=1;n.required=true;n.value=String(value).padStart(2,'0');n.id='schedule-'+name+'-'+i;n.ariaLabel=t(name);n.oninput=update;return n;}
+     hour=part('hour',1,12,Math.floor(r.minute/60)%12||12);minute=part('minute',0,59,r.minute%60);
+-    period=select([[0,'AM'],[1,'PM']],Math.floor(r.minute/720),update);period.id='schedule-period-'+i;
+-    time.append(period,hour,node('span',':'),minute);field(card,'Time',time);
+-    field(card,'Target',select([0,1,2,3,4].map(k=>{const blocked=k===4?timers().some(Boolean):!!timers()[k];return [k,(k===4?'All channels':'Channel '+(k+1))+(blocked?' · timer registered':''),blocked];}),r.channel,x=>r.channel=x));field(card,'Action',select([[1,'ON'],[0,'OFF']],r.on,x=>r.on=x));box.append(card);
++    period=select([[0,t('am')],[1,t('pm')]],Math.floor(r.minute/720),update);period.id='schedule-period-'+i;
++    time.append(period,hour,node('span',':'),minute);field(card,t('time'),time);
++    field(card,'Target',select([0,1,2,3,4].map(k=>{const blocked=k===4?timers().some(Boolean):!!timers()[k];return [k,(k===4?t('allChannels'):t('channelDefault',{number:k+1}))+(blocked?' · '+t('timerRegistered'):''),blocked];}),r.channel,x=>r.channel=x));field(card,t('action'),select([[1,t('stateOn')],[0,t('stateOff')]],r.on,x=>r.on=x));box.append(card);
+    });
+-   const actions=node('div');actions.className='row';const add=node('button','Add rule');add.type='button';add.disabled=busy||!loaded||draft.rules.every(r=>r.mode)||timers().every(Boolean);add.onclick=()=>{const i=draft.rules.findIndex(r=>!r.mode),channel=timers().some(Boolean)?timers().findIndex(v=>!v):4;if(i<0||channel<0)return;draft.rules[i]={minute:600,mode:129,day:0,channel,on:0};dirty=true;render();};const apply=node('button','Save to device');apply.type='submit';apply.className='primary';apply.disabled=busy||!loaded||!available();actions.append(add,apply);box.append(actions);
++   const actions=node('div');actions.className='row';const add=node('button',t('addRule'));add.type='button';add.disabled=busy||!loaded||draft.rules.every(r=>r.mode)||timers().every(Boolean);add.onclick=()=>{const i=draft.rules.findIndex(r=>!r.mode),channel=timers().some(Boolean)?timers().findIndex(v=>!v):4;if(i<0||channel<0)return;draft.rules[i]={minute:600,mode:129,day:0,channel,on:0};dirty=true;render();};const apply=node('button',t('saveDevice'));apply.type='submit';apply.className='primary';apply.disabled=busy||!loaded||!available();actions.append(add,apply);box.append(actions);
+   }
+-  form.onsubmit=async e=>{e.preventDefault();if(busy||!loaded||!available())return;try{if(draft.rules.some(r=>(r.mode&127)&&timers().some((v,i)=>v&&(r.channel===4||r.channel===i))))throw Error('Conflict');const hex=encode(draft);busy=true;render();await save(hex);dirty=false;status.textContent='Saved.';}catch(_){status.textContent='Save failed. Check timer conflicts, settings and connection.';}finally{busy=false;render();}};
++  form.onsubmit=async e=>{e.preventDefault();if(busy||!loaded||!available())return;try{if(draft.rules.some(r=>(r.mode&127)&&timers().some((v,i)=>v&&(r.channel===4||r.channel===i))))throw Error('Conflict');const hex=encode(draft);busy=true;render();await save(hex);dirty=false;status.textContent=t('saved');}catch(_){status.textContent=t('saveFailed');}finally{busy=false;render();}};
+   render();return {load(hex){if(dirty||busy)return;draft=decode(hex);loaded=true;render();},translate:render,ready(){const button=box.querySelector('button[type=submit]');if(button)button.disabled=busy||!loaded||!available();}};
+  }
+  root.MttlSchedule={encode,decode,defaults,mount};if(typeof module==='object'&&module.exports)module.exports=root.MttlSchedule;
+diff --git a/source/standalone/ui/timer.js b/source/standalone/ui/timer.js
+index c48faca..4d1d334 100644
+--- a/source/standalone/ui/timer.js
++++ b/source/standalone/ui/timer.js
+@@ -1,26 +1,27 @@
+ /* Shared timer editor; zero minutes means unregistered. */
+ (function(root){
+  'use strict';
++ const t=(key,args={})=>root.MttlI18n.t(key,args);
+  function valid(minutes,schedule){
+   if(!Array.isArray(minutes)||minutes.length!==4||minutes.some(m=>!Number.isInteger(m)||m<0||m>1440))throw Error('Timer');
+   if(schedule.rules.some(r=>(r.mode&127)&&minutes.some((m,i)=>m&&(r.channel===4||r.channel===i))))throw Error('Conflict');
+  }
+  function mount({save,available,schedule,locked}){
+   const box=document.getElementById('timer-editor'),form=document.getElementById('timer-form'),status=document.getElementById('timer-status');let values=[0,0,0,0],loaded=false,busy=false,dirty=false;const liveNodes=[],liveTexts=[];
+-  function render(){box.replaceChildren();const hint=document.createElement('p');hint.className='muted';hint.textContent='Auto OFF after ON: 1 minute–24 hours. ON channels restart the full timer after reboot. A channel cannot also have a schedule, and a locked outlet cannot have a timer.';box.append(hint);
++  function render(){box.replaceChildren();const hint=document.createElement('p');hint.className='muted';hint.textContent=t('timerHint');box.append(hint);
+    values.forEach((value,i)=>{
+     const protect=!!((locked?locked():0)&(1<<i));if(protect)value=values[i]=0;
+-    const card=document.createElement('div');card.className='name-editor';const title=document.createElement('b');title.textContent='Channel '+(i+1);card.append(title);
++    const card=document.createElement('div');card.className='name-editor';const title=document.createElement('b');title.textContent=t('channelDefault',{number:i+1});card.append(title);
+     const conflict=schedule().rules.some(r=>(r.mode&127)&&(r.channel===4||r.channel===i));const row=document.createElement('div');row.className='row';const hours=document.createElement('input'),minutes=document.createElement('input');
+-    [[hours,24,Math.floor(value/60),'Hours'],[minutes,59,value%60,'Minutes']].forEach(([input,max,v,label])=>{input.type='number';input.min=0;input.max=max;input.step=1;input.value=v;input.required=true;input.disabled=busy||!loaded||conflict||protect;input.style.width='85px';input.setAttribute('aria-label',title.textContent+' '+label);const l=document.createElement('label');l.textContent=label;l.append(input);row.append(l);});
++    [[hours,24,Math.floor(value/60),t('hours')],[minutes,59,value%60,t('minutes')]].forEach(([input,max,v,label])=>{input.type='number';input.min=0;input.max=max;input.step=1;input.value=v;input.required=true;input.disabled=busy||!loaded||conflict||protect;input.style.width='85px';input.setAttribute('aria-label',title.textContent+' '+label);const l=document.createElement('label');l.textContent=label;l.append(input);row.append(l);});
+     const update=()=>{dirty=true;values[i]=Number(hours.value)*60+Number(minutes.value);};hours.oninput=minutes.oninput=update;
+-    const remove=document.createElement('button');remove.type='button';remove.textContent='Delete';remove.disabled=busy||!loaded||protect;remove.onclick=()=>{values[i]=0;dirty=true;render();};row.append(remove);card.append(row);
+-    const note=document.createElement('p');note.className='muted';note.textContent=protect?'Locked outlet. Unlock it before registering a timer.':conflict?'Registered in scheduler. Delete its schedules first.':value?'Registered · save to apply':'Unregistered · save zero to remove.';card.append(note);
+-    const live=document.createElement('div');live.className='muted';live.textContent=liveTexts[i]||'Timer 00:00:00';liveNodes[i]=live;card.append(live);box.append(card);
+-   });const apply=document.createElement('button');apply.type='submit';apply.className='primary';apply.textContent='Save to device';apply.disabled=busy||!loaded||!available();box.append(apply);
++    const remove=document.createElement('button');remove.type='button';remove.textContent=t('delete');remove.disabled=busy||!loaded||protect;remove.onclick=()=>{values[i]=0;dirty=true;render();};row.append(remove);card.append(row);
++    const note=document.createElement('p');note.className='muted';note.textContent=protect?t('timerLocked'):conflict?t('timerConflict'):value?t('timerRegisteredNote'):t('timerUnregistered');card.append(note);
++    const live=document.createElement('div');live.className='muted';live.textContent=liveTexts[i]||t('timerLive');liveNodes[i]=live;card.append(live);box.append(card);
++   });const apply=document.createElement('button');apply.type='submit';apply.className='primary';apply.textContent=t('saveDevice');apply.disabled=busy||!loaded||!available();box.append(apply);
+   }
+-  form.onsubmit=async e=>{e.preventDefault();if(busy||!loaded||!available())return;try{valid(values,schedule());busy=true;render();await save([...values]);dirty=false;status.textContent='Saved.';}catch(_){status.textContent='Save failed. Check 24-hour limit, schedule conflicts and connection.';}finally{busy=false;render();}};
+-  render();return {load(v){if(dirty||busy)return;values=[...(v||[0,0,0,0])];loaded=true;render();},show(texts){liveNodes.forEach((n,i)=>{liveTexts[i]=texts[i]||'Timer 00:00:00';n.textContent=liveTexts[i];});},translate:render,ready(){const b=box.querySelector('button[type=submit]');if(b)b.disabled=busy||!loaded||!available();}};
++  form.onsubmit=async e=>{e.preventDefault();if(busy||!loaded||!available())return;try{valid(values,schedule());busy=true;render();await save([...values]);dirty=false;status.textContent=t('saved');}catch(_){status.textContent=t('saveFailed');}finally{busy=false;render();}};
++  render();return {load(v){if(dirty||busy)return;values=[...(v||[0,0,0,0])];loaded=true;render();},show(texts){liveNodes.forEach((n,i)=>{liveTexts[i]=texts[i]||t('timerLive');n.textContent=liveTexts[i];});},translate:render,ready(){const b=box.querySelector('button[type=submit]');if(b)b.disabled=busy||!loaded||!available();}};
+  }
+  root.MttlTimer={valid,mount};if(typeof module==='object'&&module.exports)module.exports=root.MttlTimer;
+ })(globalThis);

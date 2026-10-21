@@ -1,0 +1,153 @@
+diff --git a/source/standalone/build_network_test.py b/source/standalone/build_network_test.py
+index fbe1ef6..928de20 100644
+--- a/source/standalone/build_network_test.py
++++ b/source/standalone/build_network_test.py
+@@ -87,7 +87,7 @@ def main():
+             'boot_signature':'FFFFFFFFFFFFFFFF','device_written':False,
+             'target_boot_verified':False,'validation_profile':'Portable format/roundtrip and setup emulator; original decoder fixture not included','production_ready':False,
+             'relay_enabled':options.relay_test,'settings_persistent':False,'ota_write_enabled':ota,
+-            'settings_flash_enabled':True,'settings_banks':[['0x70000','0x80000'],['0xe0000','0xf0000']],'settings_record_bytes':1024,'settings_migration':False,
++            'settings_flash_enabled':True,'settings_banks':[['0x70000','0x80000'],['0xe0000','0xf0000']],'settings_record_bytes':1024,'settings_migration':True,'settings_migration_source':'one-time import of the 2.0.x v8 record at 0xee000/0xef000',
+             'initial_rtos_heap_bytes':(39 if options.sensor_test else 48)*1024 if ota else 100*1024,
+             'sensor_gpio_enabled':options.sensor_test,
+             'ota_runtime_validated':False,
+diff --git a/source/standalone/firmware/sdk_settings_flash.c b/source/standalone/firmware/sdk_settings_flash.c
+index 4197ebc..adce0cf 100644
+--- a/source/standalone/firmware/sdk_settings_flash.c
++++ b/source/standalone/firmware/sdk_settings_flash.c
+@@ -1,14 +1,19 @@
+ #include "sdk_settings_flash.h"
++#include "settings_record.h"
+ #include "flash_api.h"
+ #include "device_lock.h"
+ #include "FreeRTOS.h"
+ #include "sdk_memory.h"
+ #include <string.h>
+ extern flash_t flash;
+-/* Worker-owned append journal, two 64KiB banks; no legacy import. */
++/* Worker-owned append journal, two 64KiB banks. The 2.0.x record is imported
++ * once (see legacy_import) so an upgrade keeps the stored configuration. */
+ #define RECORD 1024u
+ #define COMMIT 1020u
+ #define COUNT 128u
++#define LEGACY_SLOT 2048u
++#define LEGACY_BODY 1216u
++static const uint32_t legacy_sectors[2]={0xee000,0xef000};
+ static int scanned,latest=-1;
+ static uint32_t sequence;
+ static uint32_t address(unsigned s){return s<64?0x70000u+s*RECORD:0xe0000u+(s-64)*RECORD;}
+@@ -49,10 +54,42 @@ static int program(unsigned s,unsigned off,const uint8_t *b,unsigned n){uint8_t
+  ok=flash_stream_write(&flash,a,n,(uint8_t *)b)>=0&&flash_stream_read(&flash,a,n,check)==1&&!memcmp(check,b,n);
+  device_mutex_unlock(RT_DEV_LOCK_FLASH);memset(check,0,sizeof(check));return ok;
+ }
++/* 2.0.x kept a v8 record in each of two 2 KiB slots at 0xEE000/0xEF000.
++ * 2.1.0 deliberately starts a new journal instead of migrating. This fork
++ * reads the newer legacy slot once on the first boot after an upgrade, so the
++ * upgrade keeps Wi-Fi, MQTT, names, per-channel limits, the lock, the timers,
++ * the schedule, the dashboard language and the energy checkpoints. Both legacy
++ * sectors are erased after the first journal write, so the import runs at most
++ * once and stale settings can never come back. */
++static int legacy_read(uint8_t *slot,unsigned which){
++ unsigned i;int ok=1;if(which>1)return 0;
++ device_mutex_lock(RT_DEV_LOCK_FLASH);
++ for(i=0;i<LEGACY_SLOT;i+=256)if(flash_stream_read(&flash,legacy_sectors[which]+i,256,slot+i)!=1){ok=0;break;}
++ device_mutex_unlock(RT_DEV_LOCK_FLASH);return ok;
++}
++static int legacy_import(mttl_settings *out){
++ uint8_t *slot,*body;size_t n=0;int pick,ok=0;
++ if(!out)return 0;
++ slot=pvPortMalloc(LEGACY_SLOT*2);if(!slot)return 0;
++ body=pvPortMalloc(LEGACY_BODY);
++ if(body&&legacy_read(slot,0)&&legacy_read(slot+LEGACY_SLOT,1)){
++  pick=mttl_settings_choose(slot,slot+LEGACY_SLOT);
++  if(pick>=0&&mttl_settings_extract(slot+(unsigned)pick*LEGACY_SLOT,body,LEGACY_BODY,&n)&&
++     mttl_settings_storage_unpack(body,n,out))ok=1;
++ }
++ if(body){memset(body,0,LEGACY_BODY);vPortFree(body);}
++ memset(slot,0,LEGACY_SLOT*2);vPortFree(slot);return ok;
++}
+ int mttl_sdk_settings_load(mttl_settings *out){uint8_t *b;int result=-1;
+  if(!out||!geometry())return -1;scanned=0;latest=-1;sequence=0;
+  b=pvPortMalloc(RECORD);if(!b)return -1;
+- if(scan(b)){if(latest<0){mttl_settings_default(out);result=0;}
++ if(scan(b)){if(latest<0){
++   mttl_settings legacy;memset(&legacy,0,sizeof(legacy));
++   if(legacy_import(&legacy)){*out=legacy;result=mttl_sdk_settings_save(out)==1?1:0;
++    if(result==1){(void)erase(120,b);(void)erase(124,b);}}
++   else{mttl_settings_default(out);result=0;}
++   memset(&legacy,0,sizeof(legacy));
++  }
+   else if(read_record((unsigned)latest,b)&&valid(b)&&mttl_settings_storage_unpack(b+16,word(b+8),out))result=1;}
+  memset(b,0,RECORD);vPortFree(b);return result;
+ }
+diff --git a/source/standalone/host_test/protection_settings_test.c b/source/standalone/host_test/protection_settings_test.c
+index 0660284..5a70f4c 100644
+--- a/source/standalone/host_test/protection_settings_test.c
++++ b/source/standalone/host_test/protection_settings_test.c
+@@ -11,6 +11,7 @@
+ #include "ha_discovery.h"
+ #include "protection.h"
+ #include "settings.h"
++#include "settings_record.h"
+ 
+ static unsigned total, failures;
+ #define CHECK(x) do{total++;if(!(x)){failures++;printf("FAIL %s:%d: %s\n",__FILE__,__LINE__,#x);}}while(0)
+@@ -231,6 +232,38 @@ static void test_settings_v8(void){
+     CHECK(b.relay_known==15&&b.relay_on==2&&b.energy_valid==1&&b.energy_wh[0]==1234&&b.energy_raw[1]==99);
+ }
+ 
++/* 2.1.0 starts a fresh journal; the fork imports the newer 2.0.x record once.
++ * These checks pin the decode half: choose the newer slot, extract, unpack. */
++static void test_legacy_record_import(void){
++    uint8_t slot[2][MTTL_SETTINGS_SLOT],body[MTTL_SETTINGS_BODY_MAX],extract[1216];
++    mttl_settings older,newer,out;size_t n,m;uint32_t seq;
++    mttl_settings_default(&older);mttl_settings_default(&newer);
++    strcpy(newer.device,"MTTL-LivingRoom");newer.language=2;newer.button_lock=5;
++    newer.protection.current_ma=16000;newer.timer_minutes[3]=45;
++    older.language=1;older.button_lock=0;older.timer_minutes[2]=0;
++    n=mttl_settings_storage_pack(&older,body,sizeof(body));
++    CHECK(n&&mttl_settings_encode(slot[1],body,n,41));
++    slot[1][MTTL_SETTINGS_SLOT-1]=0; /* the storage driver programs the commit byte */
++    n=mttl_settings_storage_pack(&newer,body,sizeof(body));
++    CHECK(n&&mttl_settings_encode(slot[0],body,n,42));
++    slot[0][MTTL_SETTINGS_SLOT-1]=0;
++    CHECK(mttl_settings_choose(slot[0],slot[1])==0);
++    CHECK(mttl_settings_choose(slot[1],slot[0])==1);
++    /* Without its commit byte a legacy slot is not a candidate. */
++    slot[0][MTTL_SETTINGS_SLOT-1]=1;
++    CHECK(!mttl_settings_validate(slot[0],&seq,&m));
++    slot[0][MTTL_SETTINGS_SLOT-1]=0;
++    CHECK(mttl_settings_extract(slot[0],extract,sizeof(extract),&m));
++    CHECK(mttl_settings_storage_unpack(extract,m,&out));
++    CHECK(!strcmp(out.device,"MTTL-LivingRoom"));
++    CHECK(out.language==2&&out.button_lock==5&&out.timer_minutes[3]==45);
++    CHECK(out.protection.current_ma==16000);
++    /* Two erased slots must read as "nothing to import", not as a record. */
++    memset(slot,255,sizeof(slot));
++    CHECK(mttl_settings_choose(slot[0],slot[1])==-1);
++    CHECK(!mttl_settings_extract(slot[0],extract,sizeof(extract),&m));
++}
++
+ static void test_settings_rejections(void){
+     mttl_settings a,b;uint8_t body[512],old[512];size_t n;
+     mttl_settings_default(&a);
+@@ -464,6 +497,7 @@ int main(void){
+     test_protection_cut_policy();
+     test_ha_trip_discovery();
+     test_settings_v8();
++    test_legacy_record_import();
+     test_settings_rejections();
+     test_settings_migration();
+     test_settings_lock_timer_rule();
+diff --git a/source/standalone/host_test/run.sh b/source/standalone/host_test/run.sh
+index 772f9ec..4fc51fa 100755
+--- a/source/standalone/host_test/run.sh
++++ b/source/standalone/host_test/run.sh
+@@ -22,6 +22,6 @@ if "$CC" -Werror -Wno-misleading-indentation -x c -c /dev/null -o /dev/null >/de
+ fi
+ "$CC" -std=c99 -Wall -Wextra -Werror $EXTRA -O1 \
+     -I"$FW" \
+-    "$HERE/protection_settings_test.c" "$FW/protection.c" "$FW/settings.c" "$FW/scheduler.c" "$FW/ha_discovery.c" \
++    "$HERE/protection_settings_test.c" "$FW/protection.c" "$FW/settings.c" "$FW/scheduler.c" "$FW/ha_discovery.c" "$FW/settings_record.c" \
+     -o "$OUT/protection_settings_test"
+ exec "$OUT/protection_settings_test"

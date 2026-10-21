@@ -1,17 +1,17 @@
 {
-  "version": "2.0.17",
+  "version": "2.1.0",
   "profile": "NETWORK_OTA_TEST_RAM_SETTINGS",
-  "elf_sha256": "5e5ec6eeebbc338094214171f9ae34355d1e018f02970df2f2189a3dca634ed7",
+  "elf_sha256": "cbeb823fb4453616f05391b58acf990388f805af21ae5292390dfa50179bcf76",
   "files": [
     {
-      "path": "/root/mttl_fork_check/source/standalone/results/network-ota-test/mttl-w01-2.0.17-network-OTA-test.bin",
-      "bytes": 330900,
-      "sha256": "64704b2521bae2454756ed8c1ca0471b4f1d5326f5272e780fc2244fc9aac668"
+      "path": "/root/mttl_fork_check/source/standalone/results/network-ota-test/mttl-w01-2.1.0-network-OTA-test.bin",
+      "bytes": 333520,
+      "sha256": "23fa8ef7bae4fa2a91ec4b3bbde63fdf1c54d98a2fdf9f39e8874d92f0ef55c4"
     },
     {
-      "path": "/root/mttl_fork_check/source/standalone/results/network-ota-test/mttl-w01-2.0.17-network-OTA-test.fwr",
-      "bytes": 330900,
-      "sha256": "afb5fd1b0e32a6ce61d22e47b3a5715e0f75fc5818970c28b0776f6d39770fcb"
+      "path": "/root/mttl_fork_check/source/standalone/results/network-ota-test/mttl-w01-2.1.0-network-OTA-test.fwr",
+      "bytes": 333520,
+      "sha256": "86ca2cb9f375a2fa3000230ee882a473a688905e260ac8f9ef74aba47d4d510d"
     }
   ],
   "network_start_verified_in_setup_machine_code": true,
@@ -20,7 +20,7 @@
   "bin_fwr_roundtrip": true,
   "native_ota_hardware_field_verified": true,
   "msp_reserve_bytes": 4096,
-  "static_gap_to_msp_bytes": 4148,
+  "static_gap_to_msp_bytes": 1476,
   "link_warning_count": 1035,
   "boot_signature": "FFFFFFFFFFFFFFFF",
   "device_written": false,
@@ -31,15 +31,24 @@
   "settings_persistent": false,
   "ota_write_enabled": true,
   "settings_flash_enabled": true,
-  "settings_sectors": [
-    "0xee000",
-    "0xef000"
+  "settings_banks": [
+    [
+      "0x70000",
+      "0x80000"
+    ],
+    [
+      "0xe0000",
+      "0xf0000"
+    ]
   ],
+  "settings_record_bytes": 1024,
+  "settings_migration": true,
+  "settings_migration_source": "one-time import of the 2.0.x v8 record at 0xee000/0xef000",
   "initial_rtos_heap_bytes": 39936,
   "sensor_gpio_enabled": true,
   "ota_runtime_validated": false,
   "warning": "Experimental bring-up candidate, not target-boot validated. Recovery debugger required. No direct full-flash writing; no bootloader/factory replacement.",
-  "build_id": "abayoumy-en",
+  "build_id": "abayoumy-en-ar",
   "watchdog_enabled": true,
   "legacy_relay_timing": false
 }

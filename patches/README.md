@@ -3,24 +3,46 @@
 Each patch exists twice: `.patch` is `git format-patch` output (apply with
 `git am`), `.diff` is the plain `git diff` of the same commit (for reading).
 
-## Live series — applies to upstream **v2.0.17** (`311663e`)
+## Live series — applies to upstream **v2.1.0** (`2932fb8`)
 
-Base: upstream tag `v2.0.17` (identical to upstream `main`). Result: branch
-`feature/protection-v2`, tree `49c3ef130d6cf8ff8276f72d5b79bdd229f89703`.
+Base: upstream tag `v2.1.0` (upstream `main`). Result: branch
+`feature/protection-v2-2.1`, tree `164b27dc885a1dec7e063aa0d5180651ad57fab5`.
 
 | patch | commit | what it does |
 |---|---|---|
-| `0001-per-channel-current-isolation` | `fc6338c` | per-outlet current limits; a trip cuts only the blamed outlet |
-| `0002-protection-trip-visibility` | `aa68f78` | one HA protection sensor (index 25; `0006` later appends the lock sensor) |
-| `0003-current-limit-every-outlet` | `c7e8a5e` | the limit applies to every outlet, not one |
-| `0004-ui-note-and-build-id` | `24a34dd` | protection note removed; named OTA build ids |
-| `0005-timers-are-not-ha-entities` | `9a05d83` | timers stop being HA entities (34 → 26 entities) |
-| `0006-lock-every-command-path` | `cf02922` | the lock gates every command path; HA lock sensor (26 → 27 entities) |
-| `0007-english-only-dashboard` | `f88dd17` | English-only dashboard; Korean dictionary, inline `ko`/`en` pairs and the language selector removed (entity list unchanged) |
+| `0001-per-channel-current-isolation` | `c678dac` | per-outlet current limits; a trip cuts only the blamed outlet |
+| `0002-protection-trip-visibility` | `7229d41` | one HA protection sensor (index 25; `0006` later appends the lock sensor) |
+| `0003-current-limit-every-outlet` | `9771e87` | the limit applies to every outlet, not one |
+| `0004-ui-note-and-build-id` | `f2a47bc` | protection note removed; named OTA build ids |
+| `0005-timers-are-not-ha-entities` | `6bc9f85` | timers stop being HA entities (34 → 26 entities) |
+| `0006-lock-every-command-path` | `c95df42` | the lock gates every command path; HA lock sensor (26 → 27 entities) |
+| `0007-english-only-dashboard` | `8b5ee54` | English-only dashboard; Korean dictionary, inline `ko`/`en` pairs and the language selector removed (entity list unchanged) |
+| `0008-arabic-main-page-device-language` | `f4b4d05` | Egyptian Arabic for the main page only; language stored in the settings record |
+| `0009-settings-import-legacy-record` | `98d6fae` | one-time import of the 2.0.x settings record into the 2.1.0 journal |
+| `0010-settings-tab-arabic-pages` | `ce49d0c` | Wi-Fi/MQTT/Firmware/Logs behind one Settings tab with a chip row; Egyptian Arabic for the power pages (editors and event log included); the Settings group stays English and LTR; RTL at the document root |
 
-Verified: `git am patches/000[1-7]-*.patch` on a clean `v2.0.17` checkout
-reproduces tree `49c3ef13…` exactly, the host suite passes (249 checks, 0 failed)
-and the three dashboard/OTA node tests pass.
+Verified: `git am patches/0001-*.patch … 0010-*.patch` on a clean `v2.1.0`
+checkout reproduces tree `164b27d…` exactly, the host suite passes (265 checks,
+0 failed) and the four dashboard/OTA/i18n node tests pass (i18n: 9 checks).
+
+## Upstream 2.1.0 storage (why `0009` exists)
+
+Upstream replaced the two 4 KiB settings sectors with a 128-record append
+journal (1 KiB records, CRC32 + sequence, two 64 KiB banks at `0x70000` and
+`0xE0000`), erases in 4-record groups and skips a write when the record is
+byte-identical. Energy is now flushed hourly (local-clock high-water, 5 s retry)
+instead of every 5 minutes. OTA grew a `first_end` so a slot-A image stops at
+`0x70000` and can never erase the journal.
+
+Upstream deliberately does **not** migrate the 2.0.x record, so the first 2.1.0
+boot starts from defaults: Wi-Fi, MQTT, names, limits, lock, timers, schedule,
+language and energy are lost and the strip returns to its setup AP. `0009`
+reads the newer of the two legacy 2 KiB slots (`0xEE000`/`0xEF000`) through
+`mttl_settings_choose()`/`mttl_settings_extract()`, writes it into the journal,
+and then erases both legacy sectors so the import runs at most once and cannot
+resurrect stale settings. `host_test` pins the decode half; the flash half
+reuses the journal writer's own read-back path.
+
 
 ## What "locked" means (patch 0006)
 

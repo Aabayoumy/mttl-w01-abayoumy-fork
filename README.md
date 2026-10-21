@@ -9,7 +9,7 @@ resulting tree.
 | | |
 |---|---|
 | original source | <https://github.com/af950833/mttl_w01_standalone> |
-| base this series applies to | upstream tag **`v2.0.17`** (commit `311663e`) |
+| base this series applies to | upstream tag **`v2.1.0`** (commit `2932fb8`) |
 | upstream licence | MIT © af950833 — see [`LICENSE`](LICENSE); third-party notices in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) |
 | affiliation | none — not affiliated with, or endorsed by, LG U+ or the upstream author. Upstream does not support user modifications; questions about these patches belong here |
 
@@ -19,7 +19,7 @@ firmware — the vendor backend removed, the dashboard served by the device itse
 
 ## Features added over the upstream base
 
-What a strip running this fork does that an upstream `v2.0.17` strip does not:
+What a strip running this fork does that an upstream `v2.1.0` strip does not:
 
 1. **Per-outlet overcurrent protection.** The one current limit judges the total **and** every
    outlet; a per-outlet trip cuts **only** the outlet to blame instead of dropping all four relays.
@@ -39,21 +39,26 @@ What a strip running this fork does that an upstream `v2.0.17` strip does not:
    MQTT `…/timerN/set`.
 7. **Named, reproducible OTA builds.** `MTTL_OTA_BUILD_ID` replaces the random per-build id, and the
    OTA page accepts a name instead of only 16 hex characters.
-8. **Settings record v8.** Stores the four `channel_current_ma` values; records written by older
-   firmware migrate instead of being rejected, and a downgrade still reads the same record.
-9. **One language: English only.** The Korean dictionary, every inline `ko`/`en` string pair and the
-   header language selector are gone (§7); `text()` keeps its shape, a fresh settings record starts
-   as English, and the device build now refuses Korean text in any asset.
+8. **Per-outlet current limits, stored once.** The payload keeps the four `channel_current_ma`
+   values; on 2.1.0 they live in the new append journal, and a record left by 2.0.x firmware is
+   imported once on the first boot of this build instead of being lost (§6).
+9. **Arabic power pages, English Settings.** Egyptian Arabic for the device, protection, scheduler
+   and timer pages, English for Wi-Fi, MQTT, Firmware and Logs (§7). The language is a setting on the
+   device, so every browser agrees, numbers stay Western and readings stay LTR.
+10. **One Settings tab.** Wi-Fi, MQTT, Firmware and Logs sit behind a single *Settings* nav button
+    with a chip row, leaving the four everyday pages as top-level tabs (§8); hashes, the OTA panel
+    and the rest of the controller are untouched.
 
 All of this is RAM-budget work: the firmware text shares its region with the gzipped web UI, and the
 linker refuses an image that crosses the reserved stack budget. The lock commit (§3) costs 664 B;
-dropping the Korean dictionary and the inline pairs (§7) returned 3,390 B of the gzip budget, so the
-published build leaves a **4,148 B** gap to the MSP limit. Per-object costs, the build log and every
+dropping the Korean dictionary and the inline pairs (§7) returned 3,390 B of the gzip budget, and the
+two Arabic page sets cost 2,696 B of it back (16,039 → 18,735 of the 20,000 B cap), so the published
+build leaves a **1,476 B** gap to the MSP limit. Per-object costs, the build log and every
 measurement are in [`docs/FEATURE-per-channel-current.md`](docs/FEATURE-per-channel-current.md).
 
 ### Upstream vs this fork, side by side
 
-| behaviour | upstream `v2.0.17` | this fork |
+| behaviour | upstream `v2.1.0` | this fork |
 |---|---|---|
 | over-current judgement | the aggregate total only | the total **and** each of the four outlets, from the same limit |
 | a per-outlet trip | impossible — any trip cuts all four relays | cuts **only** the blamed outlet |
@@ -70,8 +75,8 @@ measurement are in [`docs/FEATURE-per-channel-current.md`](docs/FEATURE-per-chan
 | entities announced per strip | 34 | **27** (34 → 26 with the timers removed, +1 for the lock sensor) |
 | OTA build id | random `secrets.token_hex(8)`; the OTA page accepted `/^[0-9a-f]{16}$/` only | `MTTL_OTA_BUILD_ID` used verbatim; the page accepts `/^[0-9a-z][0-9a-z._-]{3,31}$/` |
 | protection-tab footer | *"No automatic ON or lock. Sensor failures show errors only. This does not replace hardware safety protection."* | removed — protection is implemented; the two-round policy hint above the form stays |
-| settings record | v7 | **v8** = v7 + 4 × `u16 channel_current_ma` |
-| dashboard language | Korean and English, switched by a header button and remembered in `localStorage` and in the settings record | **English only** — one dictionary, no button, no preference; the settings byte is still stored and reported |
+| settings record | v7 in two 4 KiB sectors | **v8 payload** (v7 + 4 × `u16 channel_current_ma`) in 2.1.0's 128-record append journal; the two 2.0.x sectors are imported once, then erased |
+| dashboard language | Korean and English, switched by a header button and remembered in `localStorage` and in the settings record | **Arabic or English**, chosen on the device and read back from the settings record: Egyptian Arabic for the device/protection/scheduler/timer pages, **English for the Settings group** (Wi-Fi, MQTT, Firmware, Logs) |
 
 ### 1. Protection — one limit, per-outlet judgement, isolated cut
 
@@ -218,34 +223,51 @@ failures show errors only. This does not replace hardware safety protection."* a
 counterpart): local protection is implemented, so the sentence was misleading. The hint above the
 form — the two-round policy, the mask/reason semantics and the ~10 s channel sampling — stays.
 
-### 6. Settings record v8
+### 6. Settings storage: v8 payload in the 2.1.0 journal (`patches/0009-…`)
 
-v8 = v7 + 4 × `u16 channel_current_ma`: tail 66 → 74, `needed` 82 → 90, packed record 118 B, 156 B
-of flash including overhead. A v4–v7 record **migrates with 16,000 mA defaults** instead of being
-rejected. The fork deliberately keeps the record self-consistent: it never reads the array when
-deciding, and the web UI mirrors the single limit into all four values on save — so the stored
-record, `/api/config` and a downgraded firmware all agree.
+The payload is still v8 = v7 + 4 × `u16 channel_current_ma`: tail 66 → 74, `needed` 82 → 90, packed
+record 118 B, and a v4–v7 record **migrates with 16,000 mA defaults** instead of being rejected. The
+fork keeps the record self-consistent: it never reads the array when deciding, and the web UI mirrors
+the single limit into all four values on save, so the stored record, `/api/config` and a downgraded
+firmware all agree.
 
-### 7. One language: English only (`patches/0007-…`)
+Upstream 2.1.0 replaced the two 4 KiB settings sectors with a 128-record append journal (1 KiB
+records, CRC32 + sequence, two 64 KiB banks at `0x70000` and `0xE0000`). Upstream deliberately does
+not migrate the 2.0.x record, so a first 2.1.0 boot would fall back to defaults — Wi-Fi, MQTT, names,
+limits, lock, timers, schedule, language and energy lost, and the strip back on its setup AP.
+`0009` reads the newer of the two legacy slots (`0xEE000`/`0xEF000`), writes it through the journal
+writer's own read-back path, and erases both legacy sectors so the import runs at most once and can
+never resurrect stale settings. On hardware it took the LivingRoom strip from 2.0.17 to 2.1.0 with
+all 28 configuration fields intact (see *Verification*).
 
-The dashboard shipped two dictionaries and a header button that switched between them: the choice
-lived in `localStorage`, in the `language` byte of the settings record, in the OTA page's own word
-list and in every string written as a `ko`/`en` pair. The strip is used in one language, so the
-mechanism is gone.
+### 7. Two languages: Arabic power pages, English Settings (`patches/0008-…`, `0010-…`)
+
+The strip is used in Egyptian Arabic at home, so the four everyday pages are translated — but the
+technical pages stay in English, where their labels match the vendor tools, the MQTT topics and the
+documentation.
 
 | | |
 |---|---|
-| dictionary | `ui/i18n.js` keeps a single `en` table. `text(language,key,args)` keeps its three-argument shape, so every call site and the device-side compact builder are unchanged; the language argument is ignored |
-| inline strings | the KO arm of every `cond ? en : ko`, the second argument of every `text(ko,en)` / `logEvent(ko,en)` helper and the helpers themselves are deleted; the browser-session log keeps one message per row |
-| static fallbacks | `index.html`, `ota-test.html` and the OTA panel that `build_assets.py` injects are English; the `#language` button and its CSS rule are gone |
-| OTA page | a single English word list, no re-render on a language toggle |
-| build guard | the device build refuses any gzipped asset containing a Hangul character, next to the existing preview-text denylist, and the device dictionary is built as a single-language table |
-| settings record | **v8 unchanged**: `mttl_settings_default()` writes `language=1` (English) for a fresh record, a stored `0` stays valid and simply renders English, the dashboard writes `1` whenever it saves, and the device keeps reporting the byte in `/api/config` |
-| RAM | the Korean dictionary and the inline pairs were 3,390 B of the 20,000 B gzip budget (19,429 → 16,039), which is what lifted the link gap from 764 B to 4,148 B |
+| where the choice lives | the `language` byte of the settings record (`/api/config`), written from any browser; **not** `localStorage`, so a phone, a laptop and a kiosk all show the same language |
+| Arabic pages | device (`المشترك`), protection (`الحماية`), scheduler (`الجدولة`), timer (`التايمر`) — headings, labels, hints, unit words, both editors, the event log and the header button (`العربية` ⇄ `English`) |
+| English pages | the whole Settings group — Wi-Fi setup, HA · MQTT, Firmware, Logs, chip row included — in both languages: those keys carry no Arabic value in `ui/i18n.js`, so they fall back to the English table, and where a key is shared with an Arabic page (`netState`, `apiUnavailable`, `saveDevice`) the panels resolve it in English explicitly |
+| layout | `dir` is set on the document root; the Settings group is laid out LTR so English is not mirrored, while readings, IPs, MACs, hashes and the `UTC±hh:mm` offset stay LTR inside the RTL pages via `unicode-bidi:isolate` |
+| text style | Egyptian colloquial with the technical terms transliterated (المشترك، الحماية، الجدولة، التايمر، واي فاي، الفيرموير) and Western digits — `81.760 W`, `4.834 kWh`, `219.3 V` |
+| build guards | every Arabic value must contain Arabic script, every Arabic key must exist in the English table, and no Settings key may be translated; the gzipped dashboards are still checked against the 20,000 B cap |
+| RAM | the Arabic pages are 2,696 B of gzip (16,039 → 18,735), which is what took the link gap from 4,148 B to 1,476 B |
 
-Protection, the lock, the timers, the schedules and the HA entity list are untouched — 27 entities
-per strip before and after — and the three dashboard/OTA node tests were updated to the English
-wording.
+The Korean dictionary and the inline `ko`/`en` pairs stay deleted (`0007`): the Arabic pages use the
+same single-table mechanism, so `text(language,key,args)` returns English for any key without a
+translation. Protection, the lock, the timers, the schedules and the HA entity list are untouched —
+27 entities per strip before and after.
+
+### 8. One Settings tab (`patches/0010-…`)
+
+Wi-Fi setup, HA · MQTT, Firmware and Logs were four of the eight top-level tabs. They are now one
+*Settings* (`الإعدادات`) tab with a chip row (`#subnav`), so the four everyday pages are the only
+top-level tabs. The section ids (`#wifi`, `#mqtt`, `#firmware`, `#logs`) did not change: deep links,
+the OTA panel replacement and the live controller keep working, and the chip row follows the hash,
+the back button and the tab state.
 
 ### Not built: Home Assistant control of the limits — measured, does not fit
 
@@ -269,18 +291,21 @@ is on; HTTP and MQTT are unauthenticated on the LAN, so the strip belongs on a t
 
 ## Patches
 
-Seven commits on top of upstream `v2.0.17`. `.patch` is `git format-patch` output (apply with
-`git am`), `.diff` is the same commit as a plain diff for reading.
+Ten commits on top of upstream `v2.1.0`. `.patch` is `git format-patch` output (apply with `git am`),
+`.diff` is the same commit as a plain diff for reading.
 
 | patch | commit | feature |
 |---|---|---|
-| `0001-per-channel-current-isolation` | `fc6338c` | per-outlet current limits; a trip cuts only the blamed outlet (§1) |
-| `0002-protection-trip-visibility` | `aa68f78` | the HA protection sensor, index 25 (§2) |
-| `0003-current-limit-every-outlet` | `c7e8a5e` | one limit applies to every outlet, not one (§1) |
-| `0004-ui-note-and-build-id` | `24a34dd` | protection note off, named OTA build ids (§5) |
-| `0005-timers-are-not-ha-entities` | `9a05d83` | timers stop being HA entities, 34 → 26 (§4) |
-| `0006-lock-every-command-path` | `cf02922` | the lock gates every command path; HA lock sensor, 26 → 27 (§3) |
-| `0007-english-only-dashboard` | `f88dd17` | English-only dashboard; Korean dictionary, inline `ko`/`en` pairs and the language selector removed (§7) |
+| `0001-per-channel-current-isolation` | `c678dac` | per-outlet current limits; a trip cuts only the blamed outlet (§1) |
+| `0002-protection-trip-visibility` | `7229d41` | the HA protection sensor, index 25 (§2) |
+| `0003-current-limit-every-outlet` | `9771e87` | one limit applies to every outlet, not one (§1) |
+| `0004-ui-note-and-build-id` | `f2a47bc` | protection note off, named OTA build ids (§5) |
+| `0005-timers-are-not-ha-entities` | `6bc9f85` | timers stop being HA entities, 34 → 26 (§4) |
+| `0006-lock-every-command-path` | `c95df42` | the lock gates every command path; HA lock sensor, 26 → 27 (§3) |
+| `0007-english-only-dashboard` | `8b5ee54` | English-only dashboard; Korean dictionary, inline `ko`/`en` pairs and the language selector removed (§7) |
+| `0008-arabic-main-page-device-language` | `f4b4d05` | Egyptian Arabic for the main page; language stored in the settings record (§7) |
+| `0009-settings-import-legacy-record` | `98d6fae` | one-time import of the 2.0.x settings record into the 2.1.0 journal (§6) |
+| `0010-settings-tab-arabic-pages` | `ce49d0c` | the Settings tab and chip row; Arabic for the power pages, English and LTR for the Settings group (§7, §8) |
 
 `patches/README.md` documents each patch; `patches/2.0.15/` holds the earlier series based on the
 older 2.0.15 base (superseded, kept for reference).
@@ -289,7 +314,7 @@ older 2.0.15 base (superseded, kept for reference).
 
 | path | contents |
 |---|---|
-| `patches/` | the fork's commit series for upstream `v2.0.17` — see the table above |
+| `patches/` | the fork's commit series for upstream `v2.1.0` — see the table above |
 | `docs/` | `FEATURE-per-channel-current.md` — the full write-up (design, measurements, every on-hardware verification run); `HA-LIMITS-WIRING.md` — the Home Assistant entity contract, template recipes, RAM options; `REVIEW-per-channel-protection.md` — design review; `BUILD_LXC.md` — the build environment. Paths quoted inside these documents are relative to this repository's root |
 | `tools/` | build/verify helpers (`measure-build.py`, `fwr-compare.py`, `fwr-asset-compare.py`, `sdk-overlays.py`, `ui-asset-report.py`, `strip-snapshot.sh`, `strip-config-write.py`) — see `tools/README.md` |
 | `firmware/` | the latest compiled firmware, its manifest and `SHA256SUMS` |
@@ -300,19 +325,20 @@ older 2.0.15 base (superseded, kept for reference).
 ```sh
 # 1. get the original source at the base tag
 git clone https://github.com/af950833/mttl_w01_standalone.git
-cd mttl_w01_standalone && git checkout v2.0.17
+cd mttl_w01_standalone && git checkout v2.1.0
 
-# 2. apply this series (resulting tree: 49c3ef130d6cf8ff8276f72d5b79bdd229f89703)
-git am /path/to/mttl-w01-abayoumy-fork/patches/000[1-7]-*.patch
+# 2. apply this series (resulting tree: 164b27dc885a1dec7e063aa0d5180651ad57fab5)
+git am /path/to/mttl-w01-abayoumy-fork/patches/00*.patch
 
-# 3. host unit tests (no hardware needed) — expect 249 checks, 0 failed
+# 3. host unit tests (no hardware needed) — expect 265 checks, 0 failed
 sh source/standalone/host_test/run.sh
+cd source/standalone && for t in tests/*.cjs; do node "$t"; done   # 4 node tests
 
 # 4. build (needs the upstream builder and the vendor toolchain; see tools/README.md)
 export MTTL_GCC_DIR=$HOME/mttl-tools/gcc
 export MTTL_TERSER_ROOT=$HOME/mttl-tools/js/node_modules/terser
-export MTTL_OTA_BUILD_ID=abayoumy-en            # named id -> byte-reproducible build
-~/mttl-tools/venv/bin/python3 build.py
+export MTTL_OTA_BUILD_ID=abayoumy-en-ar      # named id -> byte-reproducible build
+~/mttl-tools/venv/bin/python3 source/build.py
 ```
 
 Flash over the air on the local network (the strip swaps boot slots and reboots; the upload takes
@@ -321,29 +347,29 @@ Flash over the air on the local network (the strip swaps boot slots and reboots;
 ```sh
 curl -X POST http://<strip-ip>/api/firmware/upload \
   -H "Content-Type: application/x-mttl-fwr" -H "Origin: http://<strip-ip>" -H "Expect:" \
-  --max-time 90 --data-binary @firmware/mttl-w01-2.0.17-abayoumy-en.fwr
-curl -s http://<strip-ip>/api/firmware/status      # expect build_id abayoumy-en, version 2.0.17
+  --max-time 150 --data-binary @firmware/mttl-w01-2.1.0-abayoumy-en-ar.fwr
+curl -s http://<strip-ip>/api/firmware/status   # expect build_id abayoumy-en-ar, version 2.1.0
 ```
 
 ## The build in `firmware/`
 
 | | |
 |---|---|
-| file | `mttl-w01-2.0.17-abayoumy-en.fwr` |
-| size | 330,900 bytes |
-| sha256 | `afb5fd1b0e32a6ce61d22e47b3a5715e0f75fc5818970c28b0776f6d39770fcb` |
-| build id / version | `abayoumy-en` / `2.0.17` (base `v2.0.17`) |
-| profile | `NETWORK_OTA_TEST_RAM_SETTINGS` (relay, OTA write, settings flash, watchdog enabled) |
-| RAM gap to MSP | 4,148 bytes free (4,096-byte stack reserve) |
-| UI assets | 3 assets, 16,039 bytes gzip total (cap 20,000) — one English dictionary |
+| file | `mttl-w01-2.1.0-abayoumy-en-ar.fwr` |
+| size | 333,520 bytes |
+| sha256 | `86ca2cb9f375a2fa3000230ee882a473a688905e260ac8f9ef74aba47d4d510d` |
+| build id / version | `abayoumy-en-ar` / `2.1.0` (base `v2.1.0`) |
+| profile | `NETWORK_OTA_TEST_RAM_SETTINGS` (relay, OTA write, settings flash and one-time legacy import, watchdog enabled) |
+| RAM gap to MSP | 1,476 bytes free (4,096-byte stack reserve) |
+| UI assets | 3 assets, 18,735 bytes gzip total (cap 20,000) — English table + Egyptian Arabic pages |
 
-Only the latest build is published. The earlier ids (`abayoumy`, `abayoumy-notimers`,
-`abayoumy-lock`) were intermediate steps on the way to `abayoumy-en`; their logs and manifests are
-not in this repo. `abayoumy-en` is byte-reproducible from the patch series, host-verified and
-flashed to **both strips** on 2026-10-19 — the LivingRoom strip (`10.0.0.53`) first, then the
-BedRoom strip (`10.0.0.54`), whose `PVE1` outlet feeds the Proxmox host and held through the OTA
-reboot. It is a superset of `abayoumy-lock` (protection, lock, timers) plus the English-only
-dashboard.
+Only the latest build is published. The earlier ids (`abayoumy`, `abayoumy-notimers`, `abayoumy-lock`,
+`abayoumy-en`) were intermediate steps; their logs and manifests are not in this repo. Rebuilding
+`abayoumy-en-ar` from the patch series gives the same sha256 twice in a row. It was flashed to both
+strips on 2026-10-21 — the LivingRoom strip (`10.0.0.53`, which was still on 2.0.17 and came back
+with every setting imported) and then the BedRoom strip (`10.0.0.54`), whose `PVE1` outlet feeds the
+Proxmox host and held through the OTA reboot.
+
 
 ## Home Assistant
 
@@ -359,18 +385,27 @@ control only — protection, timers, schedules and the lock all work on the devi
 ## Verification
 
 The builds that were flashed were checked on physical strips before being published: OTA slot swap,
-byte-identical `/api/config` before and after, preserved energy counters, UI assets matching the
-manifest, every announced entity present in HA, and behavioural tests of the trip isolation, the
-lock (buttons, web UI single/ALL, HA single/ALL, timers, schedules) and the timer rule. The host
-unit suite passes **249 checks / 0 failed**, the three dashboard/OTA node tests pass, and applying
-the published patches to a pristine upstream `v2.0.17` reproduces tree
-`49c3ef130d6cf8ff8276f72d5b79bdd229f89703` exactly — the tree the firmware here was built from, with
-the build refusing Korean text in any gzipped asset. `abayoumy-en` was then flashed to **both
-strips** on 2026-10-19 — the LivingRoom strip (`10.0.0.53`) first, then the BedRoom strip
-(`10.0.0.54`): OTA slot swap on each, `/api/config` byte-identical to its own pre-flash record, the
-three served UI assets byte-identical to the built ones with **zero Hangul**, and 27 entities still
-announcing per strip. The BedRoom strip's `PVE1` outlet powers the Proxmox host, and that relay
-never dropped during the OTA. Raw transcripts and photos are not included in this repository.
+`/api/config` unchanged across the reboot, preserved energy counters, UI assets matching the
+manifest, every announced entity present in HA, and behavioural tests of the trip isolation, the lock
+(buttons, web UI single/ALL, HA single/ALL, timers, schedules) and the timer rule. The host unit suite
+passes **265 checks / 0 failed** and the four dashboard/OTA/i18n node tests pass; applying the
+published patches to a pristine upstream `v2.1.0` reproduces tree
+`164b27dc885a1dec7e063aa0d5180651ad57fab5` exactly — the tree the firmware here was built from.
+
+Both strips now run `abayoumy-en-ar` on 2.1.0:
+
+| | LivingRoom `10.0.0.53` | BedRoom `10.0.0.54` |
+|---|---|---|
+| before | 2.0.17, slot B | 2.1.0 (Arabic build), slot A |
+| `/api/config` | **all 28 fields identical** to the 2.0.17 record — the one-time legacy import did its job | byte-identical (`sha256 80f7f374…`) |
+| language | 1 (English) | 2 (Arabic power pages, English Settings) |
+| served UI | 3 assets byte-identical to the build (`/ c176f77c…`, `i18n.js c1070420…`, `live.js e6ec1faa…`) | same three |
+| HA | 27 entities, 0 unavailable | 27 entities, 0 unavailable |
+
+Arabic mode was also rendered headlessly against a stubbed device API: the device page shows
+`81.760 W`, `4.834 kWh`, `219.3 V` with Arabic labels and Western digits, the protection, scheduler
+and timer pages are Arabic, and all four Settings panels — chip row included — are English and LTR.
+Raw transcripts and photos are not included in this repository.
 
 ## Licence
 
