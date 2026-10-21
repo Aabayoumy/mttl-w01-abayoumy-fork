@@ -187,7 +187,7 @@ index ab314ef..1af6afa 100644
  }
  static void (*service_network)(void);
 diff --git a/source/standalone/firmware/sdk_worker.c b/source/standalone/firmware/sdk_worker.c
-index 6e499fc..b47b751 100644
+index 461e658..b57f02a 100644
 --- a/source/standalone/firmware/sdk_worker.c
 +++ b/source/standalone/firmware/sdk_worker.c
 @@ -175,9 +175,11 @@ static __attribute__((noinline)) void timer_service(uint32_t now){
@@ -211,9 +211,9 @@ index 6e499fc..b47b751 100644
          mttl_sdk_meter_tick(&device.samples,clock_ms(0));
 -        if(mttl_sdk_meter_protection(&device.samples,&device.settings.protection,&device.protection))protection_off();
 +        if(mttl_sdk_meter_protection(&device.samples,&device.settings.protection,&device.protection))protection_off(device.protection.cut_mask);
-         if(storage_begin()){mttl_sdk_energy_tick(&device.settings,&device.samples,clock_ms(0));storage_end();}
-         publish_snapshots(clock_ms(0));
-         {
+         if(storage_begin()){uint64_t time=0;int valid=mttl_time_now(&device.ntp.time,clock_ms(0),&time);
+          mttl_sdk_energy_clock(valid,(uint32_t)(time/1000),device.settings.schedule.timezone);
+          mttl_sdk_energy_tick(&device.settings,&device.samples,clock_ms(0));storage_end();}
 diff --git a/source/standalone/firmware/selftest.c b/source/standalone/firmware/selftest.c
 index 8c566f0..6f2847e 100644
 --- a/source/standalone/firmware/selftest.c
@@ -740,10 +740,10 @@ index 72914a9..ce77a63 100644
      note:'A preview of controls and setup. Values are simulated; this page does not connect to a power strip, Wi-Fi or MQTT.',
      menu:'Menu',device:'Power strip',wifi:'Wi-Fi setup',mqtt:'HA · MQTT',firmware:'Firmware',logs:'Logs',currentVersion:'Current version',
 diff --git a/source/standalone/ui/index.html b/source/standalone/ui/index.html
-index 7344f74..58b50c5 100644
+index 0e2f621..c076aa8 100644
 --- a/source/standalone/ui/index.html
 +++ b/source/standalone/ui/index.html
-@@ -76,6 +76,11 @@
+@@ -77,6 +77,11 @@
        <div class="sensor protection-slider"><input id="protect-current" type="range" min="1" max="16" step="0.1" value="16"><b id="protect-current-value">16.0 A</b></div>
        <label><input id="protect-power-enabled" type="checkbox" checked><span data-i18n="protectPower">고전력 차단 · 전체 전력</span></label>
        <div class="sensor protection-slider"><input id="protect-power" type="range" min="100" max="3000" step="1" value="3000"><b id="protect-power-value">3000 W</b></div>
@@ -756,7 +756,7 @@ index 7344f74..58b50c5 100644
      </form><div id="protection-state" class="status" role="status"></div><p class="muted" data-i18n="protectionNote">자동 재켜기·잠금은 없습니다. 센서 읽기 실패는 오류만 표시합니다. 하드웨어 안전 보호 장치를 대체하지 않습니다.</p></div>
    </section>
 diff --git a/source/standalone/ui/live.js b/source/standalone/ui/live.js
-index 805907b..7ab5706 100644
+index d8f7c9c..8d126c6 100644
 --- a/source/standalone/ui/live.js
 +++ b/source/standalone/ui/live.js
 @@ -64,16 +64,27 @@

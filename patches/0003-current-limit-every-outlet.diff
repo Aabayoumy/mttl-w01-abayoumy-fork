@@ -305,10 +305,10 @@ index ce77a63..ddd402f 100644
      note:'A preview of controls and setup. Values are simulated; this page does not connect to a power strip, Wi-Fi or MQTT.',
      menu:'Menu',device:'Power strip',wifi:'Wi-Fi setup',mqtt:'HA · MQTT',firmware:'Firmware',logs:'Logs',currentVersion:'Current version',
 diff --git a/source/standalone/ui/index.html b/source/standalone/ui/index.html
-index 58b50c5..6aa77fc 100644
+index c076aa8..89457cd 100644
 --- a/source/standalone/ui/index.html
 +++ b/source/standalone/ui/index.html
-@@ -68,19 +68,14 @@
+@@ -69,19 +69,14 @@
      </form></div>
    </section>
    <section id="protection" role="tabpanel" aria-labelledby="tab-protection">
@@ -331,7 +331,7 @@ index 58b50c5..6aa77fc 100644
      </form><div id="protection-state" class="status" role="status"></div><p class="muted" data-i18n="protectionNote">자동 재켜기·잠금은 없습니다. 센서 읽기 실패는 오류만 표시합니다. 하드웨어 안전 보호 장치를 대체하지 않습니다.</p></div>
    </section>
 diff --git a/source/standalone/ui/live.js b/source/standalone/ui/live.js
-index 7ab5706..4966211 100644
+index 8d126c6..57a2d46 100644
 --- a/source/standalone/ui/live.js
 +++ b/source/standalone/ui/live.js
 @@ -70,20 +70,18 @@

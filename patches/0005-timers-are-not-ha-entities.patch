@@ -1,7 +1,7 @@
-From 9a05d83ef06514e8d3a4dbdaec2aa0ec35950f52 Mon Sep 17 00:00:00 2001
+From 6bc9f85e5ac3a0a14a15af42838de642a82c8bb8 Mon Sep 17 00:00:00 2001
 From: abayoumy <abayoumy@users.noreply.github.com>
 Date: Sun, 18 Oct 2026 12:28:19 +0300
-Subject: [PATCH] MQTT: stop exposing the auto-off timers to Home Assistant
+Subject: [PATCH 5/9] MQTT: stop exposing the auto-off timers to Home Assistant
 
 The four `number` auto-off timers and their four `sensor` remaining-times were
 indices 25..32 of the discovery table, and the device published `<base>/timerN`
@@ -111,7 +111,7 @@ index f08f359..8f5bb1a 100644
  /* JSON projection includes no password. Raw sample contract:
   * power mW, meter Wh, current mA, temperature/voltage tenths. */
 diff --git a/source/standalone/firmware/ha_discovery.c b/source/standalone/firmware/ha_discovery.c
-index 78137a5..6658807 100644
+index 4ed1c1e..0d73eca 100644
 --- a/source/standalone/firmware/ha_discovery.c
 +++ b/source/standalone/firmware/ha_discovery.c
 @@ -10,7 +10,7 @@ size_t mttl_ha_discovery(const mttl_settings *s,const char *id,unsigned index,ch
@@ -162,7 +162,7 @@ index 5d93013..fadfdaa 100644
   * Bounded JSON output, no credentials. 0 means invalid/capacity failure. */
  size_t mttl_ha_discovery(const mttl_settings *,const char *id,unsigned index,char *topic,size_t topic_cap,char *json,size_t json_cap);
 diff --git a/source/standalone/firmware/integration_mock.c b/source/standalone/firmware/integration_mock.c
-index ca024e7..ed8a1d9 100644
+index c84321c..5dd68cd 100644
 --- a/source/standalone/firmware/integration_mock.c
 +++ b/source/standalone/firmware/integration_mock.c
 @@ -7,7 +7,7 @@
@@ -335,7 +335,7 @@ index ca024e7..ed8a1d9 100644
   /* Missing fence response must retry, not mark cleanup complete. */
   s.mqtt_enabled=0;b.drop_ping=1;
   for(i=0;i<14000;i+=10)mttl_mqtt_engine_step(&e,&s,"aabbccddeeff",1,4,now+i,&io);
-@@ -350,7 +268,7 @@ void mttl_integration_test(void){mttl_settings s;mttl_mqtt_engine e;mttl_mqtt_io
+@@ -355,7 +273,7 @@ void mttl_integration_test(void){mttl_settings s;mttl_mqtt_engine e;mttl_mqtt_io
   mttl_device_init(&app,1700000000);strcpy(app.settings.wifi_password,"wifi-secret");strcpy(app.settings.mqtt_password,"mqtt-secret");
   }
   check(mttl_device_settings_json(&app,mttl_test_config_json,sizeof(mttl_test_config_json))>0);
@@ -344,7 +344,7 @@ index ca024e7..ed8a1d9 100644
    app.control.known_mask=app.mqtt_known=15;app.mqtt_all=1;
    check(!mttl_device_mqtt_pending(&app));
    app.control.on_mask=app.mqtt_on=15;check(mttl_device_mqtt_pending(&app));
-@@ -429,4 +347,3 @@ void mttl_integration_test(void){mttl_settings s;mttl_mqtt_engine e;mttl_mqtt_io
+@@ -434,4 +352,3 @@ void mttl_integration_test(void){mttl_settings s;mttl_mqtt_engine e;mttl_mqtt_io
   memset(&b,0,sizeof(b));mttl_mqtt_engine_init(&e);for(i=0;i<4000&&e.session.state!=MTTL_MQ_ONLINE;i++)mttl_mqtt_engine_step(&e,&s,"aabbccddeeff",1,1,i,&io);
   b.drop_ping=1;for(now=i+21000;now<i+32000;now+=100)mttl_mqtt_engine_step(&e,&s,"aabbccddeeff",1,1,now,&io);check(b.pings==1&&b.closed>0);
  }
@@ -397,3 +397,6 @@ index e320047..ad52a2f 100644
  }
  
  int main(void){
+-- 
+2.51.2
+

@@ -1,7 +1,7 @@
-From aa68f782036242421acd617b3d68e838cee6fae9 Mon Sep 17 00:00:00 2001
+From 7229d41f93bfde5ef17b194eba87354993f0e55d Mon Sep 17 00:00:00 2001
 From: fork <fork@local>
 Date: Sat, 17 Oct 2026 22:20:15 +0300
-Subject: [PATCH] Protection: publish trip visibility for Home Assistant
+Subject: [PATCH 2/9] Protection: publish trip visibility for Home Assistant
 
 Tells HA when a cut is in effect and which outlets it switched off, without the
 RAM a per-channel-limit control surface would need (that attempt measured 344 B
@@ -74,7 +74,7 @@ index 9a7f46d..f08f359 100644
      mttl_timer_state timers;
      int (*timer_request)(uint8_t,uint16_t);
 diff --git a/source/standalone/firmware/ha_discovery.c b/source/standalone/firmware/ha_discovery.c
-index 0027089..78137a5 100644
+index ea2726a..4ed1c1e 100644
 --- a/source/standalone/firmware/ha_discovery.c
 +++ b/source/standalone/firmware/ha_discovery.c
 @@ -12,7 +12,15 @@ size_t mttl_ha_discovery(const mttl_settings *s,const char *id,unsigned index,ch
@@ -191,3 +191,6 @@ index 7c75742..772f9ec 100755
 +    "$HERE/protection_settings_test.c" "$FW/protection.c" "$FW/settings.c" "$FW/scheduler.c" "$FW/ha_discovery.c" \
      -o "$OUT/protection_settings_test"
  exec "$OUT/protection_settings_test"
+-- 
+2.51.2
+

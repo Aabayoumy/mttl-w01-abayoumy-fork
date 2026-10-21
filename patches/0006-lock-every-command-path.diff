@@ -54,7 +54,7 @@ index 8f5bb1a..9ed6245 100644
      mttl_timer_state timers;
      int (*timer_request)(uint8_t,uint16_t);
 diff --git a/source/standalone/firmware/ha_discovery.c b/source/standalone/firmware/ha_discovery.c
-index 6658807..3db48f0 100644
+index 0d73eca..f48d5ca 100644
 --- a/source/standalone/firmware/ha_discovery.c
 +++ b/source/standalone/firmware/ha_discovery.c
 @@ -20,6 +20,13 @@ size_t mttl_ha_discovery(const mttl_settings *s,const char *id,unsigned index,ch
@@ -92,7 +92,7 @@ index fadfdaa..119b512 100644
   * Bounded JSON output, no credentials. 0 means invalid/capacity failure. */
  size_t mttl_ha_discovery(const mttl_settings *,const char *id,unsigned index,char *topic,size_t topic_cap,char *json,size_t json_cap);
 diff --git a/source/standalone/firmware/integration_mock.c b/source/standalone/firmware/integration_mock.c
-index ed8a1d9..59f4818 100644
+index 5dd68cd..20cb331 100644
 --- a/source/standalone/firmware/integration_mock.c
 +++ b/source/standalone/firmware/integration_mock.c
 @@ -138,7 +138,7 @@ void mttl_integration_test(void){mttl_settings s;mttl_mqtt_engine e;mttl_mqtt_io
@@ -105,7 +105,7 @@ index ed8a1d9..59f4818 100644
   {char json[768],topic[128];uint8_t packet[1024];size_t n;memset(s.device,'"',64);s.device[64]=0;memset(s.topic,'x',64);s.topic[64]=0;
   n=mttl_ha_discovery(&s,"aabbccddeeff",0,topic,sizeof(topic),json,sizeof(json));check(n>0);check(mttl_mq_publish_packet(packet,sizeof(packet),topic,(const uint8_t *)json,n,1)>0);mttl_settings_default(&s);strcpy(s.broker,"192.168.0.4");s.mqtt_enabled=1;}
 diff --git a/source/standalone/firmware/sdk_worker.c b/source/standalone/firmware/sdk_worker.c
-index b47b751..d4b5aef 100644
+index b57f02a..5d18646 100644
 --- a/source/standalone/firmware/sdk_worker.c
 +++ b/source/standalone/firmware/sdk_worker.c
 @@ -163,10 +163,17 @@ static mttl_worker_status published;
@@ -303,7 +303,7 @@ index ad52a2f..d501bc3 100644
      return failures?1:0;
  }
 diff --git a/source/standalone/ui/app.js b/source/standalone/ui/app.js
-index 08c63d3..0214ec1 100644
+index ed87ca0..a08ef24 100644
 --- a/source/standalone/ui/app.js
 +++ b/source/standalone/ui/app.js
 @@ -49,7 +49,7 @@
@@ -316,7 +316,7 @@ index 08c63d3..0214ec1 100644
        header.append(edit,title,lock);card.append(header);
        [['power',on?'10.0 W':'0.0 W'],['channelMeter',(0.1+i*0.05).toFixed(3)+' kWh'],['current',on?'0.100 A':'0.000 A'],['temperature',(24+i).toFixed(1)+' °C']].forEach(([key,value])=>{const row=document.createElement('div');row.className='sensor';const label=document.createElement('span'),data=document.createElement('b');label.textContent=t(key);data.textContent=value;row.append(label,data);card.append(row);});
 diff --git a/source/standalone/ui/live.js b/source/standalone/ui/live.js
-index 4966211..2b9e546 100644
+index 57a2d46..97aaab1 100644
 --- a/source/standalone/ui/live.js
 +++ b/source/standalone/ui/live.js
 @@ -27,7 +27,7 @@

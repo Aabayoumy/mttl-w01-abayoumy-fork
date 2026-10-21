@@ -1,13 +1,13 @@
 diff --git a/source/standalone/build_assets.py b/source/standalone/build_assets.py
-index 4034874..04c48a6 100644
+index 051858f..85d9356 100644
 --- a/source/standalone/build_assets.py
 +++ b/source/standalone/build_assets.py
 @@ -21,11 +21,11 @@ html=html.replace('<section id="device" class="active"','<section id="device"')
  html=html.replace('<section id="wifi" role=','<section id="wifi" class="active" role=')
  if options.ota_test:
      panel='''<section id="firmware" role="tabpanel" aria-labelledby="tab-firmware"><div class="panel">
--<h2 data-i18n="firmware">펌웨어</h2><div class="sensor"><span data-i18n="currentVersion">현재 버전</span><b id="current-firmware-version">2.0.17</b></div>
-+<h2 data-i18n="firmware">Firmware</h2><div class="sensor"><span data-i18n="currentVersion">Current version</span><b id="current-firmware-version">2.0.17</b></div>
+-<h2 data-i18n="firmware">펌웨어</h2><div class="sensor"><span data-i18n="currentVersion">현재 버전</span><b id="current-firmware-version">2.1.0</b></div>
++<h2 data-i18n="firmware">Firmware</h2><div class="sensor"><span data-i18n="currentVersion">Current version</span><b id="current-firmware-version">2.1.0</b></div>
  <div class="sensor"><span>Build ID</span><b id="current-build-id">—</b></div>
  <p id="ota-hint" class="muted"></p><form id="firmware-form">
  <label id="ota-file-label" for="firmware-picker"></label><input id="firmware-file" type="file" accept=".fwr" hidden>
@@ -135,7 +135,7 @@ index 22ae5cc..4f7ed2f 100644
   const document={documentElement:{lang:'en'},getElementById:id=>nodes[id]};
   const location={reload(){reloads++;}};
 diff --git a/source/standalone/ui/app.js b/source/standalone/ui/app.js
-index 0214ec1..901b483 100644
+index a08ef24..aa11a75 100644
 --- a/source/standalone/ui/app.js
 +++ b/source/standalone/ui/app.js
 @@ -5,21 +5,20 @@
@@ -219,7 +219,7 @@ index 0214ec1..901b483 100644
      timerEditor.translate();
 -    document.documentElement.lang=preferences.language;document.title=t('title');byId('language').textContent=preferences.language==='ko'?'English':'Korean';
 +    document.documentElement.lang='en';document.title=t('title');
-     byId('current-firmware-version').textContent='2.0.17';
+     byId('current-firmware-version').textContent='2.1.0';
      for(const [attribute,target] of [['data-i18n',null],['data-i18n-placeholder','placeholder'],['data-i18n-aria','aria-label']])document.querySelectorAll('['+attribute+']').forEach(element=>{const text=t(element.getAttribute(attribute));if(target)element.setAttribute(target,text);else element.textContent=text;});
      for(let i=1;i<=4;i++)byId('channel-name-label-'+i).textContent=t('channelName',{number:i});
      render();renderNetwork();renderStatuses();renderFirmware();renderSelectedFile();renderLogs();time();
@@ -507,7 +507,7 @@ index 3ef47a1..e0b04fe 100644
      return message.replace(/\{(\w+)\}/g,(_,name)=>String(args[name]??''));
    }};
 diff --git a/source/standalone/ui/index.html b/source/standalone/ui/index.html
-index 3477d94..e0e009f 100644
+index 5af2eed..7126d43 100644
 --- a/source/standalone/ui/index.html
 +++ b/source/standalone/ui/index.html
 @@ -1,8 +1,8 @@
@@ -521,7 +521,7 @@ index 3477d94..e0e009f 100644
  <style>
    :root{font:14px/1.5 "Segoe UI Variable","Apple SD Gothic Neo","Malgun Gothic",sans-serif;color:#1e293b;background:#f5f7fb;accent-color:#2563eb;--line:#e2e8f0;--muted:#64748b;--blue:#2563eb}
    *{box-sizing:border-box}body{margin:0}header{background:#0f172a;color:white;padding:22px max(24px,calc((100% - 1152px)/2));display:flex;justify-content:space-between;align-items:center;gap:16px}h1{font-size:21px;letter-spacing:-.6px;margin:0}h2{font-size:19px;letter-spacing:-.4px;margin:0 0 20px}
-@@ -11,103 +11,103 @@
+@@ -11,7 +11,7 @@
    section{display:none}section.active{display:block}.panel,.channel{background:white;border:1px solid var(--line);border-radius:18px}.panel{padding:26px;margin-bottom:20px}.summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-top:22px}.summary div{background:#f8fafc;border:1px solid #edf2f7;border-radius:12px;padding:16px 8px;text-align:center}.summary small{display:block;font-size:11px;margin-bottom:6px}.summary b{font-size:19px;letter-spacing:-.4px;font-variant-numeric:tabular-nums}
    .channels{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.channel{padding:20px;min-width:0}.channel-head{display:flex;align-items:center;min-height:66px;gap:8px;border-bottom:1px solid #f1f5f9;padding-bottom:16px;margin-bottom:16px}.channel-head>h2{flex:1;min-width:0;overflow-wrap:anywhere;margin:0;font-size:19px}.edit-name{padding:4px 7px;font-size:12px;flex-shrink:0;background:transparent}.channel-lock{border-color:transparent}.channel-lock[aria-pressed=true]{background:#fff7ed;border-color:#fed7aa}.sensor{display:flex;justify-content:space-between;gap:8px;margin:12px 0;font-size:13px}.sensor b{font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.channel .sensor{flex-wrap:wrap}.switch{width:100%;margin-top:14px;background:#f1f5f9;border-color:transparent;color:#475569}.switch.is-on,.channel.on .switch{background:#10b981;color:white;border-color:transparent;}.switch.is-on:hover{background:#059669}.controls{text-align:center;margin-top:22px}.controls button{min-width:106px}.meta{display:flex;gap:10px 20px;flex-wrap:wrap}.meta b{color:#334155;font-weight:500}.time{margin-top:12px}
    form{max-width:520px}label{display:block;margin:18px 0 7px;font-size:12px;font-weight:600}input,select{width:100%;padding:11px 12px;background:#f8fafc}input[type=checkbox]{width:auto;margin-right:8px}input[type=range]{padding:0}.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:20px}.status{min-height:22px;color:#047857;font-size:12px;margin-top:16px}.status.error{color:#b91c1c}pre{margin:0;padding:18px;border-radius:12px;background:#0f172a;color:#cbd5e1;font:12px/1.8 ui-monospace,monospace;white-space:pre-wrap;height:300px;overflow:auto}
@@ -530,7 +530,8 @@ index 3477d94..e0e009f 100644
    @media(max-width:800px){.channels{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){header{padding:18px}main{padding:0 14px;margin-top:18px}.panel{padding:18px}.channel{padding:14px}.summary{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.summary div{padding:12px 5px}.summary b{font-size:16px}.sensor{font-size:12px}.meta{gap:8px 12px}nav{flex-wrap:nowrap;overflow:auto;width:100%}nav button{white-space:nowrap;padding:9px 12px}}
    [data-i18n="connection"]::after,[data-i18n="currentTime"]::after,[data-i18n="recentConnection"]::after,[data-i18n="uptime"]::after{content:":\00a0"}.channel-lock{font-size:16px;line-height:18px;padding:4px 7px}
    #timer-form{max-width:none}#timer-editor{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}#timer-editor>p,#timer-editor>button{grid-column:1/-1}#timer-editor>.name-editor{min-width:0;margin:0;padding:16px}#timer-editor .row{gap:8px;margin-top:8px}#timer-editor .row label{flex:1;min-width:0}#timer-editor .row input{width:100%!important}#timer-editor .row button{width:100%}
-   #timer-editor>button{justify-self:center;width:auto;min-width:140px}#timer-editor .row label{text-align:center}#timer-editor .row input{text-align:right}
+@@ -19,96 +19,96 @@
+   #log{height:600px}
    @media(max-width:900px){#timer-editor{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:480px){#timer-editor{grid-template-columns:1fr}}
  </style>
 -<header><h1>MTTL-W01</h1><div class="header-tools"><span class="badge" data-i18n="simulation">PC 모의 화면</span><button id="language" type="button">English</button></div></header>
@@ -637,10 +638,10 @@ index 3477d94..e0e009f 100644
 +  <section id="timer" role="tabpanel" aria-labelledby="tab-timer"><div class="panel"><h2 data-i18n="timer">Timer</h2><form id="timer-form"><div id="timer-editor"></div><div id="timer-status" class="status" role="status"></div></form></div></section>
    <section id="firmware" role="tabpanel" aria-labelledby="tab-firmware">
 -    <div class="panel"><h2 data-i18n="firmware">펌웨어</h2>
--      <div class="sensor"><span data-i18n="currentVersion">현재 버전</span><b id="current-firmware-version">2.0.17</b></div>
+-      <div class="sensor"><span data-i18n="currentVersion">현재 버전</span><b id="current-firmware-version">2.1.0</b></div>
 -      <p class="muted" data-i18n="firmwareHint">현재: 독립 펌웨어 화면 초안 · 선택한 파일의 형식과 체크섬을 PC에서 검사합니다.</p>
 +    <div class="panel"><h2 data-i18n="firmware">Firmware</h2>
-+      <div class="sensor"><span data-i18n="currentVersion">Current version</span><b id="current-firmware-version">2.0.17</b></div>
++      <div class="sensor"><span data-i18n="currentVersion">Current version</span><b id="current-firmware-version">2.1.0</b></div>
 +      <p class="muted" data-i18n="firmwareHint">Current: standalone firmware preview · Inspect the selected file format and checksum on this PC.</p>
        <form id="firmware-form">
 -        <label for="firmware-picker" data-i18n="firmwareFile">펌웨어 파일 (.fwr / Image2 .bin)</label><input id="firmware-file" type="file" accept=".fwr,.bin" hidden>
@@ -681,7 +682,7 @@ index 3477d94..e0e009f 100644
  <script src="i18n.js"></script>
  <script src="scheduler.js"></script>
 diff --git a/source/standalone/ui/live.js b/source/standalone/ui/live.js
-index 2b9e546..47fdaf6 100644
+index 97aaab1..5f5a235 100644
 --- a/source/standalone/ui/live.js
 +++ b/source/standalone/ui/live.js
 @@ -2,7 +2,7 @@
@@ -801,7 +802,7 @@ index 2b9e546..47fdaf6 100644
      document.title='MTTL-W01';for(let i=1;i<=4;i++)el('channel-name-label-'+i).textContent=t('channelName',{number:i});
      for(const [attr,target] of [['data-i18n',null],['data-i18n-placeholder','placeholder'],['data-i18n-aria','aria-label']])document.querySelectorAll('['+attr+']').forEach(n=>target?n.setAttribute(target,t(n.getAttribute(attr))):n.textContent=t(n.getAttribute(attr)));
      el('scan').textContent=t('realScan');document.querySelector('#wifi-form button.primary').textContent=t('realConnect');
-     el('current-firmware-version').textContent='2.0.17';el('firmware-status').textContent=t('integrationPending');el('mqtt-status').textContent=t('integrationPending');el('firmware-selected').textContent=t('noSelectedFile');
+     el('current-firmware-version').textContent='2.1.0';el('firmware-status').textContent=t('integrationPending');el('mqtt-status').textContent=t('integrationPending');el('firmware-selected').textContent=t('noSelectedFile');
 -    document.querySelector('#mqtt-form button.primary').textContent=language==='en'?'Save to device':'기기에 저장';
 +    document.querySelector('#mqtt-form button.primary').textContent='Save to device';
      renderLog();render();
@@ -887,16 +888,16 @@ index f3db74f..80b5360 100644
    finally{clearTimeout(timeout);statusPending=false;render();}
   }
 diff --git a/source/standalone/ui/ota-test.html b/source/standalone/ui/ota-test.html
-index ae6fd43..220e412 100644
+index 3a44ae0..d624e5b 100644
 --- a/source/standalone/ui/ota-test.html
 +++ b/source/standalone/ui/ota-test.html
 @@ -1,13 +1,13 @@
  <!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MTTL-W01 OTA Test</title>
  <style>body{font:16px system-ui;max-width:700px;margin:30px auto;padding:16px;background:#f5f7fa}label{display:block;margin:18px 0}input{display:block;width:95%;padding:10px;margin-top:8px}button{padding:12px}pre{white-space:pre-wrap;overflow-wrap:anywhere}a{color:#167aaf}</style>
--<h1>MTTL-W01 2.0.17 · OTA Test</h1><a href="/">Dashboard / 대시보드</a>
+-<h1>MTTL-W01 2.1.0 · OTA Test</h1><a href="/">Dashboard / 대시보드</a>
 -<p>Image2 BIN only / .bin 파일만 지원합니다. 부트로더·전체 덤프·FWR 파일은 올리지 마세요.</p>
 -<p>실험용입니다. 저장된 Wi-Fi 설정이 있으면 재부팅 후 자동 재연결합니다. 연결 실패 시 설정 AP로 돌아갑니다. 릴레이 제어는 비활성화되어 있습니다.</p>
-+<h1>MTTL-W01 2.0.17 · OTA Test</h1><a href="/">Dashboard</a>
++<h1>MTTL-W01 2.1.0 · OTA Test</h1><a href="/">Dashboard</a>
 +<p>Image2 BIN only. Do not upload the bootloader, a full dump or a FWR file.</p>
 +<p>Experimental build. Stored Wi-Fi settings reconnect automatically after a reboot; on failure the setup AP returns. Relay control is disabled.</p>
  <pre id="state">Checking OTA readiness…</pre>

@@ -47,7 +47,7 @@ index 9a7f46d..f08f359 100644
      mttl_timer_state timers;
      int (*timer_request)(uint8_t,uint16_t);
 diff --git a/source/standalone/firmware/ha_discovery.c b/source/standalone/firmware/ha_discovery.c
-index 0027089..78137a5 100644
+index ea2726a..4ed1c1e 100644
 --- a/source/standalone/firmware/ha_discovery.c
 +++ b/source/standalone/firmware/ha_discovery.c
 @@ -12,7 +12,15 @@ size_t mttl_ha_discovery(const mttl_settings *s,const char *id,unsigned index,ch
