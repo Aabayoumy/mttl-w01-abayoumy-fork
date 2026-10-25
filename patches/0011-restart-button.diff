@@ -1,0 +1,122 @@
+diff --git a/source/standalone/ui/i18n.js b/source/standalone/ui/i18n.js
+index dcd0962..090ee65 100644
+--- a/source/standalone/ui/i18n.js
++++ b/source/standalone/ui/i18n.js
+@@ -156,6 +156,8 @@
+     stateOn:'ON',
+     stateOff:'OFF',
+     statePartial:'PARTIAL',
++    restart:'Restart',
++    restartChannel:'Restart outlet {number}',
+     lockTitleOn:'Locked: buttons, the web UI, Home Assistant, its timer and its schedules cannot switch this outlet',
+     lockTitleOff:'Unlocked: every control can switch this outlet',
+     nameSavedFlash:'Saved in device flash',
+@@ -233,6 +235,9 @@
+     logStreamDown:'Live stream interrupted; waiting for reconnect',
+     logLangFailed:'Language save could not be confirmed; check the device state.',
+     logControlFailed:'Control failed; showing last confirmed state',
++    logRestart:'Outlet {number}: restarting (off for 5 s)',
++    logRestartFailed:'Outlet {number}: restart could not switch it back on',
++    logRestartSkipped:'Outlet {number}: restart skipped, outlet still on',
+ 
+     logSavedBroker:'Saved in flash; plaintext IPv4 broker only',
+     };
+@@ -385,6 +390,8 @@
+     stateOn:'شغال',
+     stateOff:'مطفي',
+     statePartial:'جزئي',
++    restart:'ريستارت',
++    restartChannel:'إعادة تشغيل {number}',
+     lockTitleOn:'مقفول: الأزرار والويب و Home Assistant والتايمر والجدولة مش بيشغلوا المخرج ده',
+     lockTitleOff:'مفتوح: كل وسائل التحكم تقدر تشغل المخرج ده',
+     nameSavedFlash:'اتحفظ في فلاشة الجهاز',
+diff --git a/source/standalone/ui/index.html b/source/standalone/ui/index.html
+index cb239ca..20ea653 100644
+--- a/source/standalone/ui/index.html
++++ b/source/standalone/ui/index.html
+@@ -9,7 +9,7 @@
+   main{max-width:1200px;margin:28px auto;padding:0 24px}.note,.muted,.meta,.sensor span:first-child,.summary small{color:var(--muted)}.note,.muted,.meta{font-size:12px}nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:24px;background:#eaf0f7;border-radius:14px;padding:6px;width:fit-content;max-width:100%}
+   button,input,select{font:inherit;color:inherit;border:1px solid var(--line);border-radius:10px}button{cursor:pointer;background:white;padding:10px 16px;font-weight:600;}button:hover{background:#f1f5f9;border-color:#b9c6d8}nav button{border-color:transparent;background:transparent;font-size:13px}nav button[aria-selected=true]{background:white;color:var(--blue);}.primary{background:var(--blue);color:white;border-color:var(--blue)}.primary:hover{background:#1d4ed8;color:white}button:disabled{opacity:.45;cursor:default}:focus-visible{outline:3px solid #93c5fd;outline-offset:3px}
+   section{display:none}section.active{display:block}.panel,.channel{background:white;border:1px solid var(--line);border-radius:18px}.panel{padding:26px;margin-bottom:20px}.summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-top:22px}.summary div{background:#f8fafc;border:1px solid #edf2f7;border-radius:12px;padding:16px 8px;text-align:center}.summary small{display:block;font-size:11px;margin-bottom:6px}.summary b{font-size:19px;letter-spacing:-.4px;font-variant-numeric:tabular-nums}
+-  .channels{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.channel{padding:20px;min-width:0}.channel-head{display:flex;align-items:center;min-height:66px;gap:8px;border-bottom:1px solid #f1f5f9;padding-bottom:16px;margin-bottom:16px}.channel-head>h2{flex:1;min-width:0;overflow-wrap:anywhere;margin:0;font-size:19px}.edit-name{padding:4px 7px;font-size:12px;flex-shrink:0;background:transparent}.channel-lock{border-color:transparent}.channel-lock[aria-pressed=true]{background:#fff7ed;border-color:#fed7aa}.sensor{display:flex;justify-content:space-between;gap:8px;margin:12px 0;font-size:13px}.sensor b{font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.channel .sensor{flex-wrap:wrap}.switch{width:100%;margin-top:14px;background:#f1f5f9;border-color:transparent;color:#475569}.switch.is-on,.channel.on .switch{background:#10b981;color:white;border-color:transparent;}.switch.is-on:hover{background:#059669}.controls{text-align:center;margin-top:22px}.controls button{min-width:106px}.meta{display:flex;gap:10px 20px;flex-wrap:wrap}.meta b{color:#334155;font-weight:500}.time{margin-top:12px}
++  .channels{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.channel{padding:20px;min-width:0}.channel-head{display:flex;align-items:center;min-height:66px;gap:8px;border-bottom:1px solid #f1f5f9;padding-bottom:16px;margin-bottom:16px}.channel-head>h2{flex:1;min-width:0;overflow-wrap:anywhere;margin:0;font-size:19px}.edit-name{padding:4px 7px;font-size:12px;flex-shrink:0;background:transparent}.channel-lock{border-color:transparent}.channel-lock[aria-pressed=true]{background:#fff7ed;border-color:#fed7aa}.sensor{display:flex;justify-content:space-between;gap:8px;margin:12px 0;font-size:13px}.sensor b{font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.channel .sensor{flex-wrap:wrap}.switch{width:100%;margin-top:14px;background:#f1f5f9;border-color:transparent;color:#475569}.channel-actions{display:flex;gap:8px;margin-top:14px}.channel-actions .switch{flex:1;width:auto;margin-top:0;min-width:0}.channel-actions .restart{flex:1;min-width:0;background:white;border-color:var(--line);color:#334155}.channel-actions .restart:hover:not(:disabled){background:#f8fafc}.switch.is-on,.channel.on .switch{background:#10b981;color:white;border-color:transparent;}.switch.is-on:hover{background:#059669}.controls{text-align:center;margin-top:22px}.controls button{min-width:106px}.meta{display:flex;gap:10px 20px;flex-wrap:wrap}.meta b{color:#334155;font-weight:500}.time{margin-top:12px}
+   form{max-width:520px}label{display:block;margin:18px 0 7px;font-size:12px;font-weight:600}input,select{width:100%;padding:11px 12px;background:#f8fafc}input[type=checkbox]{width:auto;margin-right:8px}input[type=range]{padding:0}.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:20px}.status{min-height:22px;color:#047857;font-size:12px;margin-top:16px}.status.error{color:#b91c1c}pre{margin:0;padding:18px;border-radius:12px;background:#0f172a;color:#cbd5e1;font:12px/1.8 ui-monospace,monospace;white-space:pre-wrap;height:300px;overflow:auto}
+   .header-tools,.device-heading,.device-title{display:flex;align-items:center;gap:10px}.device-heading{justify-content:space-between;margin-bottom:18px}.device-title{min-width:0}.device-heading h2{margin:0;overflow-wrap:anywhere}.name-editor{margin:20px 0;padding:18px;background:#f8fafc;border:1px solid var(--line);border-radius:12px}.name-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 14px}.name-grid .wide{grid-column:1/-1}.protection-slider input{flex:1;min-width:0;width:auto}.protection-slider b{min-width:80px;text-align:right;white-space:nowrap}.schedule-time{display:flex;align-items:center;width:max-content;border:1px solid var(--line);border-radius:10px;overflow:hidden}.schedule-time input,.schedule-time select{width:auto;border:0;border-radius:0;padding:10px}.schedule-time input{width:65px}
+   @media(max-width:800px){.channels{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){header{padding:18px}main{padding:0 14px;margin-top:18px}.panel{padding:18px}.channel{padding:14px}.summary{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.summary div{padding:12px 5px}.summary b{font-size:16px}.sensor{font-size:12px}.meta{gap:8px 12px}nav{flex-wrap:nowrap;overflow:auto;width:100%}nav button{white-space:nowrap;padding:9px 12px}}
+diff --git a/source/standalone/ui/live.js b/source/standalone/ui/live.js
+index b90edf6..c466d8f 100644
+--- a/source/standalone/ui/live.js
++++ b/source/standalone/ui/live.js
+@@ -8,6 +8,7 @@
+   let relaySnapshot=null;
+   function applyRelay(){if(!relaySnapshot||!deviceSnapshot)return;deviceSnapshot.channels.forEach((c,i)=>{c.on=relaySnapshot.known&(1<<i)?!!(relaySnapshot.on&(1<<i)):null;});if(relaySnapshot.fault)deviceSnapshot.hardware_ready=false;}
+   const pendingChannels=new Set();let controlTail=Promise.resolve();
++  const restarting=new Map(),RESTART_SECONDS=5;
+   const optimistic=new Map();
+   const channelNodes=[];
+   let statusAt=0;
+@@ -120,9 +121,12 @@ async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(sn
+         sensors.push({text,value,label,unit,field,scale});
+       }
+       const timerRow=document.createElement('div');timerRow.className='sensor';const timerLabel=document.createElement('span'),timer=document.createElement('b');timerRow.setAttribute('aria-live','off');timerRow.append(timerLabel,timer);card.append(timerRow);
+-      const button=document.createElement('button');button.className='switch';button.onclick=()=>{const on=optimistic.has(i)?optimistic.get(i):deviceSnapshot?.channels?.[i]?.on;return control(i,on===true?0:1);};card.append(button);el('channels').append(card);
++      const actions=document.createElement('div');actions.className='channel-actions';
++      const button=document.createElement('button');button.className='switch';button.onclick=()=>{const on=optimistic.has(i)?optimistic.get(i):deviceSnapshot?.channels?.[i]?.on;return control(i,on===true?0:1);};
++      const restart=document.createElement('button');restart.type='button';restart.className='restart';restart.onclick=()=>restartChannel(i);
++      actions.append(button,restart);card.append(actions);el('channels').append(card);
+       const lock=document.createElement('button');lock.className='edit-name channel-lock';lock.onclick=()=>toggleLock(i);header.append(lock);
+-      channelNodes[i]={title,pencil,button,sensors,lock,timer,timerLabel};
++      channelNodes[i]={title,pencil,button,restart,sensors,lock,timer,timerLabel};
+       }
+       const node=channelNodes[i];node.title.textContent=name(i);node.pencil.setAttribute('aria-label',t('editChannel',{number:i+1}));
+       const locked=!!((configuration?.button_lock||0)&(1<<i));node.lock.textContent=locked?'🔒':'🔓';node.lock.title=locked?t('lockTitleOn'):t('lockTitleOff');node.lock.setAttribute('aria-label',node.lock.title);node.lock.setAttribute('aria-pressed',String(locked));node.lock.disabled=lockPending.has(i)||!configuration||![2,5].includes(snapshot?.state);
+@@ -130,6 +134,11 @@ async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(sn
+       node.button.disabled=pendingChannels.has(i)||pendingChannels.has(4)||locked||!deviceSnapshot?.hardware_ready||!snapshot?.hardware_ready||snapshot?.state!==5;
+       const on=optimistic.has(i)?optimistic.get(i):deviceSnapshot?.channels?.[i]?.on,value=on===true?t('stateOn'):on===false?t('stateOff'):t('turnOn');if(node.button.textContent!==value)node.button.textContent=value;
+       const style=on===true?'switch is-on':'switch';if(node.button.className!==style)node.button.className=style;
++      const left=restarting.get(i);
++      const restartText=left?t('restart')+' '+left:t('restart');if(node.restart.textContent!==restartText)node.restart.textContent=restartText;
++      node.restart.setAttribute('aria-label',t('restartChannel',{number:i+1}));
++      node.restart.disabled=left!==undefined||locked||on!==true||pendingChannels.size>0||!deviceSnapshot?.hardware_ready||!snapshot?.hardware_ready||snapshot?.state!==5;
++      node.button.disabled=node.button.disabled||left!==undefined;
+     }
+     drawTimers();
+     const states=Array.from({length:4},(_,i)=>optimistic.has(i)?optimistic.get(i):deviceSnapshot?.channels?.[i]?.on);
+@@ -185,7 +194,7 @@ async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(sn
+   el('name-form').onsubmit=async event=>{event.preventDefault();if(composing)return;const device=el('device-name-input').value,channels=Array.from({length:4},(_,i)=>el('channel-name-'+(i+1)).value);if(![device,...channels].every(goodName)){el('name-status').textContent=t('nameInvalid');return;}if(configuration){try{await storeConfiguration({...configuration,device:device.trim(),channels:channels.map(x=>x.trim())});el('name-status').textContent=t('nameSavedFlash');}catch(_){el('name-status').textContent=t('nameSaveFailed');return;}}else el('name-status').textContent=t('browserNames');preferences.deviceName=device.trim();preferences.channelNames=channels.map(x=>x.trim());save();render();};
+   ['all-on','all-off','firmware-picker','firmware-verify','firmware-update'].forEach(id=>el(id).disabled=true);
+   async function control(channel,on){
+-    if(pendingChannels.has(channel)||pendingChannels.has(4)||(channel===4&&pendingChannels.size))return;
++    if(pendingChannels.has(channel)||pendingChannels.has(4)||(channel===4&&pendingChannels.size))return false;
+     pendingChannels.add(channel);for(let i=0;i<4;i++)if(channel===4||i===channel)optimistic.set(i,!!on);controlBusy=true;render();
+     const previous=controlTail;let release,released=false;controlTail=new Promise(resolve=>{release=()=>{if(!released){released=true;resolve();}};});
+     await previous;
+@@ -196,11 +205,26 @@ async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(sn
+       release();
+       for(let n=0;n<(eventConnected?50:16);n++){
+         const d=eventConnected?deviceSnapshot:await request('/api/device');if(!Array.isArray(d?.channels)||d.channels.length!==4)throw Error('Device');deviceSnapshot=d;
+-        if((channel===4?d.channels:[d.channels[channel]]).every(c=>c.on===!!on))return;
++        if((channel===4?d.channels:[d.channels[channel]]).every(c=>c.on===!!on))return true;
+         await new Promise(resolve=>setTimeout(resolve,eventConnected?100:200));
+       }
+       throw Error('Command not confirmed');
+-    }catch(_){try{const actual=await request('/api/device');if(Array.isArray(actual.channels)&&actual.channels.length===4)deviceSnapshot=actual;}catch(_){}logEvent(tEn('logControlFailed'));}finally{for(let i=0;i<4;i++)if(channel===4||i===channel)optimistic.delete(i);pendingChannels.delete(channel);controlBusy=pendingChannels.size>0;release();render();}
++    }catch(_){try{const actual=await request('/api/device');if(Array.isArray(actual.channels)&&actual.channels.length===4)deviceSnapshot=actual;}catch(_){}logEvent(tEn('logControlFailed'));return false;}finally{for(let i=0;i<4;i++)if(channel===4||i===channel)optimistic.delete(i);pendingChannels.delete(channel);controlBusy=pendingChannels.size>0;release();render();}
++  }
++  /* Restart: power-cycle one outlet - off, wait, on. The countdown only starts
++     once the outlet is really off; if it cannot be switched off nothing happens. */
++  async function restartChannel(i){
++    if(restarting.has(i)||channelNodes[i]?.restart?.disabled)return;
++    restarting.set(i,RESTART_SECONDS);render();
++    try{
++      const off=await control(i,0);
++      if(!off&&deviceSnapshot?.channels?.[i]?.on===true){logEvent(tEn('logRestartSkipped',{number:i+1}));return;}
++      logEvent(tEn('logRestart',{number:i+1}));
++      for(let s=RESTART_SECONDS;s>0;s--){restarting.set(i,s);render();await new Promise(resolve=>setTimeout(resolve,1000));}
++      let on=false;
++      for(let attempt=0;attempt<3&&!on;attempt++){on=await control(i,1);if(!on)await new Promise(resolve=>setTimeout(resolve,1000));}
++      if(!on)logEvent(tEn('logRestartFailed',{number:i+1}));
++    }finally{restarting.delete(i);render();}
+   }
+   el('all-on').onclick=()=>control(4,1);el('all-off').onclick=()=>control(4,0);
+   let protectionSaving=false;

@@ -48,12 +48,18 @@ What a strip running this fork does that an upstream `v2.1.0` strip does not:
 10. **One Settings tab.** Wi-Fi, MQTT, Firmware and Logs sit behind a single *Settings* nav button
     with a chip row, leaving the four everyday pages as top-level tabs (§8); hashes, the OTA panel
     and the rest of the controller are untouched.
+11. **Per-outlet restart.** Each card's action row is split in half: the on/off switch on one side and
+    *Restart* on the other. Restart switches that outlet off, counts five seconds down on the button,
+    then switches it back on — a power cycle for a router, a monitor or anything wedged, without
+    walking to the strip. It is disabled while the outlet is off, while it is locked (so `PVE1` can
+    never be cycled by accident), while another command is in flight and while the device is not
+    ready (§9).
 
 All of this is RAM-budget work: the firmware text shares its region with the gzipped web UI, and the
 linker refuses an image that crosses the reserved stack budget. The lock commit (§3) costs 664 B;
 dropping the Korean dictionary and the inline pairs (§7) returned 3,390 B of the gzip budget, and the
-two Arabic page sets cost 2,696 B of it back (16,039 → 18,735 of the 20,000 B cap), so the published
-build leaves a **1,476 B** gap to the MSP limit. Per-object costs, the build log and every
+two Arabic page sets cost 2,696 B of it back, and the restart button 417 B more (16,039 → 19,152 of
+the 20,000 B cap), so the published build leaves a **1,060 B** gap to the MSP limit. Per-object costs, the build log and every
 measurement are in [`docs/FEATURE-per-channel-current.md`](docs/FEATURE-per-channel-current.md).
 
 ### Upstream vs this fork, side by side
@@ -254,7 +260,7 @@ documentation.
 | layout | `dir` is set on the document root; the Settings group is laid out LTR so English is not mirrored, while readings, IPs, MACs, hashes and the `UTC±hh:mm` offset stay LTR inside the RTL pages via `unicode-bidi:isolate` |
 | text style | Egyptian colloquial with the technical terms transliterated (المشترك، الحماية، الجدولة، التايمر، واي فاي، الفيرموير) and Western digits — `81.760 W`, `4.834 kWh`, `219.3 V` |
 | build guards | every Arabic value must contain Arabic script, every Arabic key must exist in the English table, and no Settings key may be translated; the gzipped dashboards are still checked against the 20,000 B cap |
-| RAM | the Arabic pages are 2,696 B of gzip (16,039 → 18,735), which is what took the link gap from 4,148 B to 1,476 B |
+| RAM | the Arabic pages are 2,696 B of gzip (16,039 → 18,735); the restart button adds 417 B (→ 19,152), which took the link gap from 4,148 B to 1,060 B |
 
 The Korean dictionary and the inline `ko`/`en` pairs stay deleted (`0007`): the Arabic pages use the
 same single-table mechanism, so `text(language,key,args)` returns English for any key without a
@@ -268,6 +274,22 @@ Wi-Fi setup, HA · MQTT, Firmware and Logs were four of the eight top-level tabs
 top-level tabs. The section ids (`#wifi`, `#mqtt`, `#firmware`, `#logs`) did not change: deep links,
 the OTA panel replacement and the live controller keep working, and the chip row follows the hash,
 the back button and the tab state.
+
+### 9. Per-outlet restart (`patches/0011-…`)
+
+A power cycle is the usual fix for a wedged router, camera or monitor, and before this patch it meant
+switching the outlet off and remembering to switch it back on. Each outlet card now has two buttons in
+its action row: the on/off switch (half width) and **Restart** (`ريستارت` on the Arabic page).
+
+| | |
+|---|---|
+| sequence | off → wait for the relay to confirm *off* → five-second countdown on the button → on, with three attempts to restore power |
+| if off fails | the outlet is checked; if it is verifiably still *on* nothing happens and one log line says so |
+| if on fails | logged, and the card keeps showing the confirmed *off* state so the load is never silently left dead |
+| disabled when | the outlet is off, locked, another command is pending, or the device is not ready (state ≠ normal, hardware not ready) |
+| landing | the button stays visible and dimmed rather than disappearing, so the card does not jump when an outlet is toggled; the on/off switch is disabled for the whole cycle |
+| where it runs | browser-side (`ui/live.js`) over the existing `/api/control` — no firmware change, no new endpoint, no timer in flash. Closing the tab during the five seconds leaves the outlet off; that is the one caveat, and it is why the countdown is on the button |
+| log | English, like the rest of the Logs panel: `Outlet 1: restarting (off for 5 s)`, and on failure `Outlet 1: restart could not switch it back on` |
 
 ### Not built: Home Assistant control of the limits — measured, does not fit
 
@@ -291,7 +313,7 @@ is on; HTTP and MQTT are unauthenticated on the LAN, so the strip belongs on a t
 
 ## Patches
 
-Ten commits on top of upstream `v2.1.0`. `.patch` is `git format-patch` output (apply with `git am`),
+Eleven commits on top of upstream `v2.1.0`. `.patch` is `git format-patch` output (apply with `git am`),
 `.diff` is the same commit as a plain diff for reading.
 
 | patch | commit | feature |
@@ -306,6 +328,7 @@ Ten commits on top of upstream `v2.1.0`. `.patch` is `git format-patch` output (
 | `0008-arabic-main-page-device-language` | `f4b4d05` | Egyptian Arabic for the main page; language stored in the settings record (§7) |
 | `0009-settings-import-legacy-record` | `98d6fae` | one-time import of the 2.0.x settings record into the 2.1.0 journal (§6) |
 | `0010-settings-tab-arabic-pages` | `ce49d0c` | the Settings tab and chip row; Arabic for the power pages, English and LTR for the Settings group (§7, §8) |
+| `0011-restart-button` | `adae332` | half-width on/off switch plus a per-outlet Restart (off, 5 s, on), disabled when off or locked (§9) |
 
 `patches/README.md` documents each patch; `patches/2.0.15/` holds the earlier series based on the
 older 2.0.15 base (superseded, kept for reference).
@@ -327,7 +350,7 @@ older 2.0.15 base (superseded, kept for reference).
 git clone https://github.com/af950833/mttl_w01_standalone.git
 cd mttl_w01_standalone && git checkout v2.1.0
 
-# 2. apply this series (resulting tree: 164b27dc885a1dec7e063aa0d5180651ad57fab5)
+# 2. apply this series (resulting tree: 825aa414d81667e99c5b2137b89fc91fbb9e4631)
 git am /path/to/mttl-w01-abayoumy-fork/patches/00*.patch
 
 # 3. host unit tests (no hardware needed) — expect 265 checks, 0 failed
@@ -356,17 +379,17 @@ curl -s http://<strip-ip>/api/firmware/status   # expect build_id abayoumy-en-ar
 | | |
 |---|---|
 | file | `mttl-w01-2.1.0-abayoumy-en-ar.fwr` |
-| size | 333,520 bytes |
-| sha256 | `86ca2cb9f375a2fa3000230ee882a473a688905e260ac8f9ef74aba47d4d510d` |
+| size | 333,936 bytes |
+| sha256 | `c6900b699721c3d8c88594775292e4c055a9c722fac656f29269708d25362918` |
 | build id / version | `abayoumy-en-ar` / `2.1.0` (base `v2.1.0`) |
 | profile | `NETWORK_OTA_TEST_RAM_SETTINGS` (relay, OTA write, settings flash and one-time legacy import, watchdog enabled) |
-| RAM gap to MSP | 1,476 bytes free (4,096-byte stack reserve) |
-| UI assets | 3 assets, 18,735 bytes gzip total (cap 20,000) — English table + Egyptian Arabic pages |
+| RAM gap to MSP | 1,060 bytes free (4,096-byte stack reserve) |
+| UI assets | 3 assets, 19,152 bytes gzip total (cap 20,000) — English table + Egyptian Arabic pages + restart |
 
 Only the latest build is published. The earlier ids (`abayoumy`, `abayoumy-notimers`, `abayoumy-lock`,
 `abayoumy-en`) were intermediate steps; their logs and manifests are not in this repo. Rebuilding
 `abayoumy-en-ar` from the patch series gives the same sha256 twice in a row. It was flashed to both
-strips on 2026-10-21 — the LivingRoom strip (`10.0.0.53`, which was still on 2.0.17 and came back
+strips (2026-10-21, refreshed 2026-10-25 with the restart button) — the LivingRoom strip (`10.0.0.53`, which was still on 2.0.17 and came back
 with every setting imported) and then the BedRoom strip (`10.0.0.54`), whose `PVE1` outlet feeds the
 Proxmox host and held through the OTA reboot.
 
@@ -389,23 +412,30 @@ The builds that were flashed were checked on physical strips before being publis
 manifest, every announced entity present in HA, and behavioural tests of the trip isolation, the lock
 (buttons, web UI single/ALL, HA single/ALL, timers, schedules) and the timer rule. The host unit suite
 passes **265 checks / 0 failed** and the four dashboard/OTA/i18n node tests pass; applying the
-published patches to a pristine upstream `v2.1.0` reproduces tree
-`164b27dc885a1dec7e063aa0d5180651ad57fab5` exactly — the tree the firmware here was built from.
+published patches (0001–0011) to a pristine upstream `v2.1.0` reproduces tree
+`825aa414d81667e99c5b2137b89fc91fbb9e4631` exactly — the tree the firmware here was built from.
 
 Both strips now run `abayoumy-en-ar` on 2.1.0:
 
 | | LivingRoom `10.0.0.53` | BedRoom `10.0.0.54` |
 |---|---|---|
 | before | 2.0.17, slot B | 2.1.0 (Arabic build), slot A |
-| `/api/config` | **all 28 fields identical** to the 2.0.17 record — the one-time legacy import did its job | byte-identical (`sha256 80f7f374…`) |
-| language | 1 (English) | 2 (Arabic power pages, English Settings) |
-| served UI | 3 assets byte-identical to the build (`/ c176f77c…`, `i18n.js c1070420…`, `live.js e6ec1faa…`) | same three |
+| `/api/config` | **all 28 fields identical** to the 2.0.17 record — the one-time legacy import did its job (`sha256 2e512e6b…` until the Arabic switch, `3d16bba6…` now) | unchanged by every flash (`80f7f374…` → `34999bb0…` → `49be3324…` after the Arabic switch) |
+| language | 2 (Arabic power pages, English Settings) | 2 (Arabic power pages, English Settings) |
+| served UI | 3 assets byte-identical to the build (`/ a1d28ba7…`, `i18n.js 1cad4a47…`, `live.js 7d8bac0f…`) | same three |
 | HA | 27 entities, 0 unavailable | 27 entities, 0 unavailable |
 
 Arabic mode was also rendered headlessly against a stubbed device API: the device page shows
 `81.760 W`, `4.834 kWh`, `219.3 V` with Arabic labels and Western digits, the protection, scheduler
 and timer pages are Arabic, and all four Settings panels — chip row included — are English and LTR.
-Raw transcripts and photos are not included in this repository.
+
+The restart button was verified the same way, then end-to-end on the BedRoom strip: the browser sent
+`/api/control` *off* and, five seconds later, *on*; the Monitor outlet came back on power and the log
+read `Outlet 1: restarting (off for 5 s)`. On the stubbed API, the countdown ran `5 → 1` while the
+switch was disabled, and the button stayed disabled for the off outlet, the locked outlets and the
+outlet next door's command. The language record was checked across two OTA reboots (2 stayed 2) —
+the earlier drift to English came from a stale full-record save in a browser tab, not from the
+journal. Raw transcripts and photos are not included in this repository.
 
 ## Licence
 

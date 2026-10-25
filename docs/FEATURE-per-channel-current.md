@@ -28,12 +28,12 @@ flashes (behaviour exercised over the API, see *Sixth flash*) until `abayoumy-en
 same day; the lock is unchanged in that build.
 
 **Rebased onto upstream `2.1.0`** (`2932fb8`) on 2026-10-21 — see *Rebase onto
-upstream 2.1.0*. Ten patches (`0001`–`0010`) apply cleanly to the tag and
-reproduce tree `164b27dc885a1dec7e063aa0d5180651ad57fab5`; the host suite passes
+upstream 2.1.0*. Eleven patches (`0001`–`0011`) apply cleanly to the tag and
+reproduce tree `825aa414d81667e99c5b2137b89fc91fbb9e4631`; the host suite passes
 **265 checks / 0 failed** and the four dashboard/OTA/i18n node tests pass. The
-published build **`abayoumy-en-ar`** is 333,520 B, sha256 `86ca2cb9f375a2fa3000230ee882a473a688905e260ac8f9ef74aba47d4d510d`,
-UI gzip **18,735 B** of the 20,000 B cap, link gap **1,476 B**, and rebuilds
-byte-identically. Both strips run it (see *Ninth flash*).
+published build **`abayoumy-en-ar`** is 333,936 B, sha256 `c6900b699721c3d8c88594775292e4c055a9c722fac656f29269708d25362918`,
+UI gzip **19,152 B** of the 20,000 B cap, link gap **1,060 B**, and rebuilds
+byte-identically. Both strips run it (see *Ninth flash* and *Tenth flash*).
 
 **Egyptian Arabic power pages, English Settings** (`f4b4d05`, `ce49d0c`) —
 the device, protection, scheduler and timer pages are Arabic in Arabic mode;
@@ -43,7 +43,8 @@ the `language` byte of the settings record (no `localStorage`), so every
 browser agrees with the strip. Wi-Fi/MQTT/Firmware/Logs were also grouped
 behind one *Settings* tab with a chip row; the section ids are unchanged.
 Arabic cost 2,696 B of the gzip budget (16,039 → 18,735) and the gap fell from
-4,148 B to 1,476 B.
+4,148 B to 1,476 B; the per-outlet **Restart** button (`adae332`, `0011`) cost
+another 417 B (→ 19,152) and left 1,060 B of gap.
 
 **The dashboard is English only** (`f88dd17`, 2026-10-19) — see *Commit 7: the
 dashboard drops Korean*. The Korean dictionary, every inline `ko`/`en` pair and the
@@ -258,7 +259,8 @@ overrun fails the link, it cannot corrupt the stack at run time.
 | **lock gates every command path (`cf02922`, flashed on both strips)** | **764** | 334,284 | **19,429** | CT 106 |
 | **English-only dashboard (`f88dd17`, built + host-verified, not flashed)** | **4148** | 330,900 | **16,039** | CT 106 |
 | **English-only dashboard, flashed (`abayoumy-en`)** | **4148** | 330,900 | **16,039** | CT 106 |
-| **2.1.0 + Arabic pages + English Settings (`ce49d0c`, `abayoumy-en-ar`, live on both strips)** | **1476** | 333,520 | **18,735** | CT 106 |
+| **2.1.0 + Arabic pages + English Settings (`ce49d0c`, `abayoumy-en-ar`)** | **1476** | 333,520 | **18,735** | CT 106 |
+| **2.1.0 + per-outlet Restart (`adae332`, live on both strips)** | **1060** | 333,936 | **19,152** | CT 106 |
 
 Per-channel current plus isolated cuts cost **960 B** (1620 → 660); the HA trip
 sensor cost another **304 B** (660 → 356). Commit 3 gave **136 B back**
@@ -856,12 +858,13 @@ more were added on top:
 | `0008-arabic-main-page-device-language` | `f4b4d05` | Egyptian Arabic for the main page; the language moves from `localStorage` into the settings record |
 | `0009-settings-import-legacy-record` | `98d6fae` | one-time import of the 2.0.x v8 record into the 2.1.0 journal, then erases both legacy sectors |
 | `0010-settings-tab-arabic-pages` | `ce49d0c` | one Settings tab with a chip row; Arabic for the power pages, English and LTR for the Settings group |
+| `0011-restart-button` | `adae332` | half-width on/off switch plus a per-outlet Restart (off, 5 s, on), disabled when off or locked |
 
 `git am patches/00*.patch` on a clean `v2.1.0` checkout reproduces tree
-`164b27dc885a1dec7e063aa0d5180651ad57fab5`; the host suite passes **265 checks / 0 failed** and the
+`825aa414d81667e99c5b2137b89fc91fbb9e4631`; the host suite passes **265 checks / 0 failed** and the
 four node tests (dashboard loading, i18n contract, OTA panel, OTA reconnect) pass. The build
-**`abayoumy-en-ar`** is **333,520 B**, sha256 `86ca2cb9…`, UI gzip **18,735 B**
-(4,784 + 3,965 + 9,986) and link gap **1,476 B**; rebuilding it produced the identical sha256.
+**`abayoumy-en-ar`** is **333,936 B**, sha256 `c6900b69…`, UI gzip **19,152 B**
+(4,846 + 4,051 + 10,255) and link gap **1,060 B**; rebuilding it produced the identical sha256.
 
 Two test changes pinned the new language contract: Arabic keys must be a subset of the English table,
 every Arabic value must contain Arabic script, and **no Settings key may have an Arabic value** —
@@ -895,6 +898,36 @@ flash also exercised the `0009` legacy import on real hardware for the first tim
   digits (`81.760 W`, `4.834 kWh`, `219.3 V`), protection/scheduler/timer are Arabic, and all four
   Settings panels (chips, labels, hints, log lines, OTA panel) are English and left-to-right;
   `10.0.0.53` (English): everything English.
+
+## Tenth flash: per-outlet Restart on both strips (2026-10-25)
+
+`0011` is browser-side only — no C change, no new endpoint — so the firmware differs from the 0010
+build only in the three served assets. Both strips were taken from `86ca2cb9…` to
+`c6900b69…` (same `build_id abayoumy-en-ar`, slot 45056 → 524288).
+
+* **Restart shape**: each card's action row is a two-column flex row, so the on/off switch is half the
+  card (113 px of 276 px in the desktop grid) and *Restart* takes the other half. It is disabled while
+  the outlet is off, locked, mid-command or the device is not ready; it stays visible and dimmed
+  rather than disappearing, so toggling an outlet does not reflow the card.
+* **Behaviour, stubbed API (headless Edge)**: click on an on/outlet → `POST /api/control`
+  `off`, the button counts `5 → 1` with the switch disabled and showing `مطفي`, then `on` five
+  seconds later; the log reads `Outlet 1: restarting (off for 5 s)`. On the same page the restart
+  button was disabled for the off outlet, for both locked outlets, and for the outlet next door while
+  its command was pending. Arabic page: `ريستارت`, `ريستارت 3` during the countdown.
+* **Behaviour, real strip**: BedRoom `10.0.0.54`, Monitor outlet (`10.0.0.54` ch3, on, unlocked) —
+  the browser sent `off` then `on` through the device; the outlet came back on and the log carried the
+  same line. `PVE1` (locked) and the other locked outlet never enabled the button.
+* **Settings**: `/api/config` was byte-identical across each flash — `.54` `34999bb0…` (still
+  `language: 1`, `button_lock: 9`) and `.53` `2e512e6b…` (the imported 2.0.x record, `language: 1`).
+  After the Arabic switch both now read `language: 2` (`.54` `49be3324…`, `.53` `3d16bba6…`);
+  `button_lock` and every other field are untouched. Serving UI hashes match the build exactly
+  (`/ a1d28ba7…`, `i18n.js 1cad4a47…`, `live.js 7d8bac0f…`).
+* **Language record across reboots**: both strips had drifted back to `language: 1` (a stale
+  full-record save from an open browser tab, not the journal). Setting Arabic from the header wrote
+  `language: 2` through the supported `POST /api/config` path; `10.0.0.53` was then OTA-flashed back
+  to `86ca2cb9…` and forward to `c6900b69…` — **two reboots, still `language: 2`** — and both strips
+  render Arabic from the device record on a fresh page load.
+* **Home Assistant**: 54 MTTL entities across the two strips (27 each), 0 unavailable.
 
 ## HA control surface for the limits — measured, does not fit (decided: not built)
 

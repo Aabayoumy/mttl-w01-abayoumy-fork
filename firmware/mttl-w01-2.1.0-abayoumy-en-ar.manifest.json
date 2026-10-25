@@ -1,17 +1,17 @@
 {
   "version": "2.1.0",
   "profile": "NETWORK_OTA_TEST_RAM_SETTINGS",
-  "elf_sha256": "cbeb823fb4453616f05391b58acf990388f805af21ae5292390dfa50179bcf76",
+  "elf_sha256": "05d0559338a789eb6436364b83f182ec76de14cba6e805d57c381e4b4b46e61f",
   "files": [
     {
       "path": "/root/mttl_fork_check/source/standalone/results/network-ota-test/mttl-w01-2.1.0-network-OTA-test.bin",
-      "bytes": 333520,
-      "sha256": "23fa8ef7bae4fa2a91ec4b3bbde63fdf1c54d98a2fdf9f39e8874d92f0ef55c4"
+      "bytes": 333936,
+      "sha256": "07472c539066e812dcca0ab58c02796012bd733ea77df5a06ec3b75e2d5ec583"
     },
     {
       "path": "/root/mttl_fork_check/source/standalone/results/network-ota-test/mttl-w01-2.1.0-network-OTA-test.fwr",
-      "bytes": 333520,
-      "sha256": "86ca2cb9f375a2fa3000230ee882a473a688905e260ac8f9ef74aba47d4d510d"
+      "bytes": 333936,
+      "sha256": "c6900b699721c3d8c88594775292e4c055a9c722fac656f29269708d25362918"
     }
   ],
   "network_start_verified_in_setup_machine_code": true,
@@ -20,7 +20,7 @@
   "bin_fwr_roundtrip": true,
   "native_ota_hardware_field_verified": true,
   "msp_reserve_bytes": 4096,
-  "static_gap_to_msp_bytes": 1476,
+  "static_gap_to_msp_bytes": 1060,
   "link_warning_count": 1035,
   "boot_signature": "FFFFFFFFFFFFFFFF",
   "device_written": false,
