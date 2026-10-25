@@ -420,7 +420,7 @@ Both strips now run `abayoumy-en-ar` on 2.1.0:
 | | LivingRoom `10.0.0.53` | BedRoom `10.0.0.54` |
 |---|---|---|
 | before | 2.0.17, slot B | 2.1.0 (Arabic build), slot A |
-| `/api/config` | **all 28 fields identical** to the 2.0.17 record — the one-time legacy import did its job (`sha256 2e512e6b…` until the Arabic switch, `3d16bba6…` now) | unchanged by every flash (`80f7f374…` → `34999bb0…` → `49be3324…` after the Arabic switch) |
+| `/api/config` | **all 28 fields identical** to the 2.0.17 record — the one-time legacy import did its job | unchanged by every flash; afterwards only `language` was switched and the MQTT password re-saved (see the note in §9 of the feature doc) |
 | language | 2 (Arabic power pages, English Settings) | 2 (Arabic power pages, English Settings) |
 | served UI | 3 assets byte-identical to the build (`/ a1d28ba7…`, `i18n.js 1cad4a47…`, `live.js 7d8bac0f…`) | same three |
 | HA | 27 entities, 0 unavailable | 27 entities, 0 unavailable |

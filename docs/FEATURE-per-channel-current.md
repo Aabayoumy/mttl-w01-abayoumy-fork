@@ -918,10 +918,15 @@ build only in the three served assets. Both strips were taken from `86ca2cb9…`
   the browser sent `off` then `on` through the device; the outlet came back on and the log carried the
   same line. `PVE1` (locked) and the other locked outlet never enabled the button.
 * **Settings**: `/api/config` was byte-identical across each flash — `.54` `34999bb0…` (still
-  `language: 1`, `button_lock: 9`) and `.53` `2e512e6b…` (the imported 2.0.x record, `language: 1`).
-  After the Arabic switch both now read `language: 2` (`.54` `49be3324…`, `.53` `3d16bba6…`);
-  `button_lock` and every other field are untouched. Serving UI hashes match the build exactly
-  (`/ a1d28ba7…`, `i18n.js 1cad4a47…`, `live.js 7d8bac0f…`).
+  `language: 1`, `button_lock: 9`) and `.53` `2e512e6b…` (the imported 2.0.x record, `language: 1`);
+  afterwards both were switched to Arabic from the header. `button_lock` and every other field are
+  untouched. Serving UI hashes match the build exactly (`/ a1d28ba7…`, `i18n.js 1cad4a47…`,
+  `live.js 7d8bac0f…`).
+* **API note**: `POST /api/config` replaces the record. A client that posts a record with an empty
+  `mqtt_password` must send `X-MTTL-Keep-Password: 1` or the broker password is **cleared** — the web
+  UI always sends it when the password field is left empty, but a proxy, curl one-liner or script that
+  drops the header will wipe the credential (this happened once to both strips during testing; the
+  password was re-saved from Settings and MQTT reconnected). The same applies to `wifi_password`.
 * **Language record across reboots**: both strips had drifted back to `language: 1` (a stale
   full-record save from an open browser tab, not the journal). Setting Arabic from the header wrote
   `language: 2` through the supported `POST /api/config` path; `10.0.0.53` was then OTA-flashed back
