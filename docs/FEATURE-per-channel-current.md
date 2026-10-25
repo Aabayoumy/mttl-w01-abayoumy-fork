@@ -28,11 +28,11 @@ flashes (behaviour exercised over the API, see *Sixth flash*) until `abayoumy-en
 same day; the lock is unchanged in that build.
 
 **Rebased onto upstream `2.1.0`** (`2932fb8`) on 2026-10-21 — see *Rebase onto
-upstream 2.1.0*. Twelve patches (`0001`–`0012`) apply cleanly to the tag and
-reproduce tree `1f867eaf3e73802778e4b8ff45175cf10fe3bbc7`; the host suite passes
+upstream 2.1.0*. Thirteen patches (`0001`–`0013`) apply cleanly to the tag and
+reproduce tree `0f164b82db2da9dc264e043724ab38b21d051152`; the host suite passes
 **265 checks / 0 failed** and the four dashboard/OTA/i18n node tests pass. The
-published build **`abayoumy-en-ar`** is 333,960 B, sha256 `9d66280b03c0d8f3a47e8ab819fa3f05b5f68c206653c3be67be62c5636244a9`,
-UI gzip **19,180 B** of the 20,000 B cap, link gap **1,036 B**, and rebuilds
+published build **`abayoumy-en-ar`** is 333,960 B, sha256 `3088240a0fc4bd4db694908ea400e4b11ac5f946bd566dd69f6e000da633ab3c`,
+UI gzip **19,182 B** of the 20,000 B cap, link gap **1,036 B**, and rebuilds
 byte-identically. Both strips run it (see *Ninth flash* and *Tenth flash*).
 
 **Egyptian Arabic power pages, English Settings** (`f4b4d05`, `ce49d0c`) —
@@ -45,7 +45,8 @@ behind one *Settings* tab with a chip row; the section ids are unchanged.
 Arabic cost 2,696 B of the gzip budget (16,039 → 18,735) and the gap fell from
 4,148 B to 1,476 B; the per-outlet **Restart** button (`adae332`/`b21aaa5`,
 `0011` + `0012`, including hiding it when the outlet is off or locked) cost
-another 445 B (→ 19,180) and left 1,036 B of gap.
+another 445 B (→ 19,180), and `0013` (the refresh landing tab) adds 2 B (→ 19,182),
+leaving 1,036 B of gap.
 
 **The dashboard is English only** (`f88dd17`, 2026-10-19) — see *Commit 7: the
 dashboard drops Korean*. The Korean dictionary, every inline `ko`/`en` pair and the
@@ -262,7 +263,8 @@ overrun fails the link, it cannot corrupt the stack at run time.
 | **English-only dashboard, flashed (`abayoumy-en`)** | **4148** | 330,900 | **16,039** | CT 106 |
 | **2.1.0 + Arabic pages + English Settings (`ce49d0c`, `abayoumy-en-ar`)** | **1476** | 333,520 | **18,735** | CT 106 |
 | 2.1.0 + per-outlet Restart (`adae332`) | 1060 | 333,936 | 19,152 | CT 106 |
-| **2.1.0 + Restart hidden when off/locked (`b21aaa5`, live on both strips)** | **1036** | 333,960 | **19,180** | CT 106 |
+| **2.1.0 + Restart hidden when off/locked (`b21aaa5`)** | **1036** | 333,960 | **19,180** | CT 106 |
+| **2.1.0 + refresh opens on the power strip (`4f166a1`, live on both strips)** | **1036** | 333,960 | **19,182** | CT 106 |
 
 Per-channel current plus isolated cuts cost **960 B** (1620 → 660); the HA trip
 sensor cost another **304 B** (660 → 356). Commit 3 gave **136 B back**
@@ -862,12 +864,13 @@ more were added on top:
 | `0010-settings-tab-arabic-pages` | `ce49d0c` | one Settings tab with a chip row; Arabic for the power pages, English and LTR for the Settings group |
 | `0011-restart-button` | `adae332` | half-width on/off switch plus a per-outlet Restart (off, 5 s, on), disabled when off or locked |
 | `0012-restart-hidden-when-off-or-locked` | `b21aaa5` | show the Restart button only on an on, unlocked outlet; keep it visible during the countdown |
+| `0013-default-tab-power-strip` | `4f166a1` | a refresh opens on the power strip; Settings > Wi-Fi only in Setup AP (2), so a refresh during Connecting/Fault no longer sticks there |
 
 `git am patches/00*.patch` on a clean `v2.1.0` checkout reproduces tree
-`1f867eaf3e73802778e4b8ff45175cf10fe3bbc7`; the host suite passes **265 checks / 0 failed** and the
+`0f164b82db2da9dc264e043724ab38b21d051152`; the host suite passes **265 checks / 0 failed** and the
 four node tests (dashboard loading, i18n contract, OTA panel, OTA reconnect) pass. The build
-**`abayoumy-en-ar`** is **333,960 B**, sha256 `9d66280b…`, UI gzip **19,180 B**
-(4,849 + 4,051 + 10,280) and link gap **1,036 B**; rebuilding it produced the identical sha256.
+**`abayoumy-en-ar`** is **333,960 B**, sha256 `3088240a…`, UI gzip **19,182 B**
+(4,849 + 4,051 + 10,282) and link gap **1,036 B**; rebuilding it produced the identical sha256.
 
 Two test changes pinned the new language contract: Arabic keys must be a subset of the English table,
 every Arabic value must contain Arabic script, and **no Settings key may have an Arabic value** —
@@ -906,8 +909,8 @@ flash also exercised the `0009` legacy import on real hardware for the first tim
 
 `0011` is browser-side only — no C change, no new endpoint — so the firmware differs from the 0010
 build only in the three served assets. Both strips were taken from `86ca2cb9…` to
-`c6900b69…` (`0011`) and then to `9d66280b…` (`0012`), same `build_id abayoumy-en-ar`,
-slot 45056 → 524288 → 45056.
+`c6900b69…` (`0011`), to `9d66280b…` (`0012`) and to `3088240a…` (`0013`), same `build_id
+abayoumy-en-ar`, slot 45056 → 524288 → 45056 → 524288.
 
 * **Restart shape**: each card's action row is a two-column flex row, so the on/off switch is half the
   card (113 px of 276 px in the desktop grid) and *Restart* takes the other half. `0012` then makes
@@ -924,11 +927,20 @@ slot 45056 → 524288 → 45056.
 * **Behaviour, real strip**: BedRoom `10.0.0.54`, Monitor outlet (`10.0.0.54` ch3, on, unlocked) —
   the browser sent `off` then `on` through the device; the outlet came back on and the log carried the
   same line. `PVE1` (locked) and the other locked outlet never enabled the button.
+* **Refresh landing tab (`0013`)**: the page used to choose its landing tab once, after the first
+  successful `/api/status`, and treated anything other than *Connected* as "needs Wi-Fi setup". A
+  refresh during *Connecting* or *Obtaining IP* — normal right after a reboot, an OTA or a Wi-Fi
+  hiccup — therefore opened **Settings > Wi-Fi** and stayed there after the strip connected. The page
+  now opens on the power strip and only switches to Wi-Fi in **Setup AP** (state 2); an explicit
+  `#wifi`/`#mqtt`/`#firmware`/`#logs` hash still wins, and the one-second Settings flash while the
+  first poll was in flight is gone. Verified headless with the stubbed API (Connected, Connecting,
+  Fault → power strip; Setup AP → Wi-Fi; `#mqtt` → MQTT) and on both real strips: after a refresh at
+  `10.0.0.54` and `10.0.0.53` the active tab is `<code>device</code>` in Arabic.
 * **Settings**: `/api/config` was byte-identical across each flash — `.54` `34999bb0…` (still
   `language: 1`, `button_lock: 9`) and `.53` `2e512e6b…` (the imported 2.0.x record, `language: 1`);
   afterwards both were switched to Arabic from the header. `button_lock` and every other field are
   untouched. Serving UI hashes match the build exactly (`/ bcf5d200…`, `i18n.js 1cad4a47…`,
-  `live.js 046d1fa3…`).
+  `live.js 26a80caa…`).
 * **API note**: `POST /api/config` replaces the record. A client that posts a record with an empty
   `mqtt_password` must send `X-MTTL-Keep-Password: 1` or the broker password is **cleared** — the web
   UI always sends it when the password field is left empty, but a proxy, curl one-liner or script that

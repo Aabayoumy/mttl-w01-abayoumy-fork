@@ -1,0 +1,15 @@
+diff --git a/source/standalone/ui/live.js b/source/standalone/ui/live.js
+index 9969c12..4fca4b6 100644
+--- a/source/standalone/ui/live.js
++++ b/source/standalone/ui/live.js
+@@ -258,8 +258,8 @@ const timerEditor=MttlTimer.mount({available:()=>!!configuration&&[2,5].includes
+     try{await request('/api/wifi',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({ssid,password}).toString()});wifiMessage='connectAccepted';}catch(_){wifiMessage='apiUnavailable';}render();
+   };
+   async function poll(){try{const result=await request('/api/status');if(!Number.isInteger(result.state)||result.state<0||result.state>6||!Number.isInteger(result.uptime_ms))throw Error('State');snapshot=result;statusAt=Date.now();}catch(_){snapshot=null;if(!controlBusy)deviceSnapshot=null;}if(snapshot){startEvents();if(!controlBusy&&!eventConnected){try{const d=await request('/api/device');if(!Array.isArray(d.channels)||d.channels.length!==4)throw Error('Device');if(!controlBusy&&!eventConnected)deviceSnapshot=d;}catch(_){if(!controlBusy)deviceSnapshot=null;}}if(!configuration){try{const c=await request('/api/config');if(!Array.isArray(c.channels)||c.channels.length!==4||typeof c.broker!=='string')throw Error('Config');configuration=c;applyLanguage();const savedLang=c.language===2?'ar':'en';if(savedLang!==lang){lang=savedLang;translate();}el('broker').value=c.broker;el('port').value=c.port;el('user').value=c.user;el('enabled').checked=c.enabled;loadProtection();timerEditor.load(c.timer_minutes);scheduleEditor.load(c.schedule_hex||MttlSchedule.encode(MttlSchedule.defaults()));}catch(_){configuration=null;}}}document.querySelectorAll('#mqtt-form input,#mqtt-form button').forEach(node=>node.disabled=!configuration||![2,5].includes(snapshot?.state));render();setTimeout(poll,eventConnected?20000:1000);}
+-  selectTab('wifi');translate();
++  selectTab('device');translate();
+   const initialPoll=poll;
+-  poll=async function(){await initialPoll();if(initialTabPending&&snapshot){const hash=typeof location!=='undefined'?location.hash.slice(1):'',node=hash?el(hash):null;selectTab(node&&node.tagName==='SECTION'||hash==='settings'?hash:snapshot.state===5?'device':'wifi');initialTabPending=false;}};
++  poll=async function(){await initialPoll();if(initialTabPending&&snapshot){const hash=typeof location!=='undefined'?location.hash.slice(1):'',node=hash?el(hash):null;selectTab(node&&node.tagName==='SECTION'||hash==='settings'?hash:snapshot.state===2?'wifi':'device');initialTabPending=false;}};
+   poll();
+ })();

@@ -58,8 +58,8 @@ What a strip running this fork does that an upstream `v2.1.0` strip does not:
 All of this is RAM-budget work: the firmware text shares its region with the gzipped web UI, and the
 linker refuses an image that crosses the reserved stack budget. The lock commit (§3) costs 664 B;
 dropping the Korean dictionary and the inline pairs (§7) returned 3,390 B of the gzip budget, and the
-two Arabic page sets cost 2,696 B of it back, and the restart button 445 B more (16,039 → 19,180 of
-the 20,000 B cap), so the published build leaves a **1,036 B** gap to the MSP limit. Per-object costs, the build log and every
+two Arabic page sets cost 2,696 B of it back, the restart button 445 B more, and the refresh landing
+tab 2 B (16,039 → 19,182 of the 20,000 B cap), so the published build leaves a **1,036 B** gap to the MSP limit. Per-object costs, the build log and every
 measurement are in [`docs/FEATURE-per-channel-current.md`](docs/FEATURE-per-channel-current.md).
 
 ### Upstream vs this fork, side by side
@@ -260,7 +260,7 @@ documentation.
 | layout | `dir` is set on the document root; the Settings group is laid out LTR so English is not mirrored, while readings, IPs, MACs, hashes and the `UTC±hh:mm` offset stay LTR inside the RTL pages via `unicode-bidi:isolate` |
 | text style | Egyptian colloquial with the technical terms transliterated (المشترك، الحماية، الجدولة، التايمر، واي فاي، الفيرموير) and Western digits — `81.760 W`, `4.834 kWh`, `219.3 V` |
 | build guards | every Arabic value must contain Arabic script, every Arabic key must exist in the English table, and no Settings key may be translated; the gzipped dashboards are still checked against the 20,000 B cap |
-| RAM | the Arabic pages are 2,696 B of gzip (16,039 → 18,735); the restart button adds 445 B (→ 19,180), which took the link gap from 4,148 B to 1,036 B |
+| RAM | the Arabic pages are 2,696 B of gzip (16,039 → 18,735); the restart button adds 445 B (→ 19,180) and the refresh landing tab 2 B (→ 19,182), which took the link gap from 4,148 B to 1,036 B |
 
 The Korean dictionary and the inline `ko`/`en` pairs stay deleted (`0007`): the Arabic pages use the
 same single-table mechanism, so `text(language,key,args)` returns English for any key without a
@@ -274,6 +274,13 @@ Wi-Fi setup, HA · MQTT, Firmware and Logs were four of the eight top-level tabs
 top-level tabs. The section ids (`#wifi`, `#mqtt`, `#firmware`, `#logs`) did not change: deep links,
 the OTA panel replacement and the live controller keep working, and the chip row follows the hash,
 the back button and the tab state.
+
+The page also had to *choose* a tab on load. It did that once, after the first successful
+`/api/status`, and any state other than *Connected* meant "needs Wi-Fi": refreshing while the strip
+was still Connecting (3) or Obtaining IP (4) — normal right after a reboot, an OTA or a Wi-Fi hiccup
+— opened Wi-Fi and stayed there after the strip connected. `patches/0013` makes the power strip the
+default and picks Wi-Fi only in Setup AP (2); `#wifi`, `#mqtt`, `#firmware` and `#logs` still win,
+and the one-second Settings flash while the first poll was in flight is gone.
 
 ### 9. Per-outlet restart (`patches/0011-…`, `0012-…`)
 
@@ -331,6 +338,7 @@ Eleven commits on top of upstream `v2.1.0`. `.patch` is `git format-patch` outpu
 | `0010-settings-tab-arabic-pages` | `ce49d0c` | the Settings tab and chip row; Arabic for the power pages, English and LTR for the Settings group (§7, §8) |
 | `0011-restart-button` | `adae332` | half-width on/off switch plus a per-outlet Restart (off, 5 s, on), disabled when off or locked (§9) |
 | `0012-restart-hidden-when-off-or-locked` | `b21aaa5` | hide the Restart button unless the outlet is on and unlocked; it stays visible during the countdown (§9) |
+| `0013-default-tab-power-strip` | `4f166a1` | open on the power strip after a refresh; Settings > Wi-Fi only in Setup AP, not during Connecting/Fault (§8) |
 
 `patches/README.md` documents each patch; `patches/2.0.15/` holds the earlier series based on the
 older 2.0.15 base (superseded, kept for reference).
@@ -352,7 +360,7 @@ older 2.0.15 base (superseded, kept for reference).
 git clone https://github.com/af950833/mttl_w01_standalone.git
 cd mttl_w01_standalone && git checkout v2.1.0
 
-# 2. apply this series (resulting tree: 1f867eaf3e73802778e4b8ff45175cf10fe3bbc7)
+# 2. apply this series (resulting tree: 0f164b82db2da9dc264e043724ab38b21d051152)
 git am /path/to/mttl-w01-abayoumy-fork/patches/00*.patch
 
 # 3. host unit tests (no hardware needed) — expect 265 checks, 0 failed
@@ -382,11 +390,11 @@ curl -s http://<strip-ip>/api/firmware/status   # expect build_id abayoumy-en-ar
 |---|---|
 | file | `mttl-w01-2.1.0-abayoumy-en-ar.fwr` |
 | size | 333,960 bytes |
-| sha256 | `9d66280b03c0d8f3a47e8ab819fa3f05b5f68c206653c3be67be62c5636244a9` |
+| sha256 | `3088240a0fc4bd4db694908ea400e4b11ac5f946bd566dd69f6e000da633ab3c` |
 | build id / version | `abayoumy-en-ar` / `2.1.0` (base `v2.1.0`) |
 | profile | `NETWORK_OTA_TEST_RAM_SETTINGS` (relay, OTA write, settings flash and one-time legacy import, watchdog enabled) |
 | RAM gap to MSP | 1,036 bytes free (4,096-byte stack reserve) |
-| UI assets | 3 assets, 19,180 bytes gzip total (cap 20,000) — English table + Egyptian Arabic pages + restart |
+| UI assets | 3 assets, 19,182 bytes gzip total (cap 20,000) — English table + Egyptian Arabic pages + restart |
 
 Only the latest build is published. The earlier ids (`abayoumy`, `abayoumy-notimers`, `abayoumy-lock`,
 `abayoumy-en`) were intermediate steps; their logs and manifests are not in this repo. Rebuilding
@@ -415,7 +423,7 @@ manifest, every announced entity present in HA, and behavioural tests of the tri
 (buttons, web UI single/ALL, HA single/ALL, timers, schedules) and the timer rule. The host unit suite
 passes **265 checks / 0 failed** and the four dashboard/OTA/i18n node tests pass; applying the
 published patches (0001–0011) to a pristine upstream `v2.1.0` reproduces tree
-`1f867eaf3e73802778e4b8ff45175cf10fe3bbc7` exactly — the tree the firmware here was built from.
+`0f164b82db2da9dc264e043724ab38b21d051152` exactly — the tree the firmware here was built from.
 
 Both strips now run `abayoumy-en-ar` on 2.1.0:
 
@@ -424,7 +432,7 @@ Both strips now run `abayoumy-en-ar` on 2.1.0:
 | before | 2.0.17, slot B | 2.1.0 (Arabic build), slot A |
 | `/api/config` | **all 28 fields identical** to the 2.0.17 record — the one-time legacy import did its job | unchanged by every flash; afterwards only `language` was switched and the MQTT password re-saved (see the note in §9 of the feature doc) |
 | language | 2 (Arabic power pages, English Settings) | 2 (Arabic power pages, English Settings) |
-| served UI | 3 assets byte-identical to the build (`/ bcf5d200…`, `i18n.js 1cad4a47…`, `live.js 046d1fa3…`) | same three |
+| served UI | 3 assets byte-identical to the build (`/ bcf5d200…`, `i18n.js 1cad4a47…`, `live.js 26a80caa…`) | same three |
 | HA | 27 entities, 0 unavailable | 27 entities, 0 unavailable |
 
 Arabic mode was also rendered headlessly against a stubbed device API: the device page shows

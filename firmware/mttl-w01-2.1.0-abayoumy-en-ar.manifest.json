@@ -1,17 +1,17 @@
 {
   "version": "2.1.0",
   "profile": "NETWORK_OTA_TEST_RAM_SETTINGS",
-  "elf_sha256": "2058c8cf9a846a4ffa8c3ff7a70cadc99640ebc48d67826dfed6e9ebf864af3d",
+  "elf_sha256": "80e3b73a0c6c7b82bac5c0631b3c7e73f6a731d71a2e6b20e0e8ca21d34a4cdb",
   "files": [
     {
       "path": "/root/mttl_fork_check/source/standalone/results/network-ota-test/mttl-w01-2.1.0-network-OTA-test.bin",
       "bytes": 333960,
-      "sha256": "c7361b84da7a0f423ea5214983804b79892896d6f6d062f180deea821f95c6b8"
+      "sha256": "b85a45d6f0a168870b1f3c55bbd76d16e1436026154e22dc9c8428edbf736432"
     },
     {
       "path": "/root/mttl_fork_check/source/standalone/results/network-ota-test/mttl-w01-2.1.0-network-OTA-test.fwr",
       "bytes": 333960,
-      "sha256": "9d66280b03c0d8f3a47e8ab819fa3f05b5f68c206653c3be67be62c5636244a9"
+      "sha256": "3088240a0fc4bd4db694908ea400e4b11ac5f946bd566dd69f6e000da633ab3c"
     }
   ],
   "network_start_verified_in_setup_machine_code": true,

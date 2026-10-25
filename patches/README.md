@@ -6,7 +6,7 @@ Each patch exists twice: `.patch` is `git format-patch` output (apply with
 ## Live series — applies to upstream **v2.1.0** (`2932fb8`)
 
 Base: upstream tag `v2.1.0` (upstream `main`). Result: branch
-`feature/protection-v2-2.1`, tree `1f867eaf3e73802778e4b8ff45175cf10fe3bbc7`.
+`feature/protection-v2-2.1`, tree `0f164b82db2da9dc264e043724ab38b21d051152`.
 
 | patch | commit | what it does |
 |---|---|---|
@@ -22,9 +22,10 @@ Base: upstream tag `v2.1.0` (upstream `main`). Result: branch
 | `0010-settings-tab-arabic-pages` | `ce49d0c` | Wi-Fi/MQTT/Firmware/Logs behind one Settings tab with a chip row; Egyptian Arabic for the power pages (editors and event log included); the Settings group stays English and LTR; RTL at the document root |
 | `0011-restart-button` | `adae332` | half-width on/off switch plus a per-outlet Restart (off, 5 s, on); disabled when the outlet is off or locked; countdown and English log lines |
 | `0012-restart-hidden-when-off-or-locked` | `b21aaa5` | the Restart button is hidden unless the outlet is on and unlocked (it stays visible during the countdown) |
+| `0013-default-tab-power-strip` | `4f166a1` | a refresh opens on the power strip; Settings > Wi-Fi is chosen only in Setup AP (2), so a refresh during Connecting/Fault no longer sticks there |
 
-Verified: `git am patches/0001-*.patch … 0012-*.patch` on a clean `v2.1.0`
-checkout reproduces tree `1f867ea…` exactly, the host suite passes (265 checks,
+Verified: `git am patches/0001-*.patch … 0013-*.patch` on a clean `v2.1.0`
+checkout reproduces tree `0f164b82…` exactly, the host suite passes (265 checks,
 0 failed) and the four dashboard/OTA/i18n node tests pass (i18n: 9 checks).
 
 ## Upstream 2.1.0 storage (why `0009` exists)
