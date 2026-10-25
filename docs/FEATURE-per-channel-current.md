@@ -28,11 +28,11 @@ flashes (behaviour exercised over the API, see *Sixth flash*) until `abayoumy-en
 same day; the lock is unchanged in that build.
 
 **Rebased onto upstream `2.1.0`** (`2932fb8`) on 2026-10-21 — see *Rebase onto
-upstream 2.1.0*. Eleven patches (`0001`–`0011`) apply cleanly to the tag and
-reproduce tree `825aa414d81667e99c5b2137b89fc91fbb9e4631`; the host suite passes
+upstream 2.1.0*. Twelve patches (`0001`–`0012`) apply cleanly to the tag and
+reproduce tree `1f867eaf3e73802778e4b8ff45175cf10fe3bbc7`; the host suite passes
 **265 checks / 0 failed** and the four dashboard/OTA/i18n node tests pass. The
-published build **`abayoumy-en-ar`** is 333,936 B, sha256 `c6900b699721c3d8c88594775292e4c055a9c722fac656f29269708d25362918`,
-UI gzip **19,152 B** of the 20,000 B cap, link gap **1,060 B**, and rebuilds
+published build **`abayoumy-en-ar`** is 333,960 B, sha256 `9d66280b03c0d8f3a47e8ab819fa3f05b5f68c206653c3be67be62c5636244a9`,
+UI gzip **19,180 B** of the 20,000 B cap, link gap **1,036 B**, and rebuilds
 byte-identically. Both strips run it (see *Ninth flash* and *Tenth flash*).
 
 **Egyptian Arabic power pages, English Settings** (`f4b4d05`, `ce49d0c`) —
@@ -43,8 +43,9 @@ the `language` byte of the settings record (no `localStorage`), so every
 browser agrees with the strip. Wi-Fi/MQTT/Firmware/Logs were also grouped
 behind one *Settings* tab with a chip row; the section ids are unchanged.
 Arabic cost 2,696 B of the gzip budget (16,039 → 18,735) and the gap fell from
-4,148 B to 1,476 B; the per-outlet **Restart** button (`adae332`, `0011`) cost
-another 417 B (→ 19,152) and left 1,060 B of gap.
+4,148 B to 1,476 B; the per-outlet **Restart** button (`adae332`/`b21aaa5`,
+`0011` + `0012`, including hiding it when the outlet is off or locked) cost
+another 445 B (→ 19,180) and left 1,036 B of gap.
 
 **The dashboard is English only** (`f88dd17`, 2026-10-19) — see *Commit 7: the
 dashboard drops Korean*. The Korean dictionary, every inline `ko`/`en` pair and the
@@ -260,7 +261,8 @@ overrun fails the link, it cannot corrupt the stack at run time.
 | **English-only dashboard (`f88dd17`, built + host-verified, not flashed)** | **4148** | 330,900 | **16,039** | CT 106 |
 | **English-only dashboard, flashed (`abayoumy-en`)** | **4148** | 330,900 | **16,039** | CT 106 |
 | **2.1.0 + Arabic pages + English Settings (`ce49d0c`, `abayoumy-en-ar`)** | **1476** | 333,520 | **18,735** | CT 106 |
-| **2.1.0 + per-outlet Restart (`adae332`, live on both strips)** | **1060** | 333,936 | **19,152** | CT 106 |
+| 2.1.0 + per-outlet Restart (`adae332`) | 1060 | 333,936 | 19,152 | CT 106 |
+| **2.1.0 + Restart hidden when off/locked (`b21aaa5`, live on both strips)** | **1036** | 333,960 | **19,180** | CT 106 |
 
 Per-channel current plus isolated cuts cost **960 B** (1620 → 660); the HA trip
 sensor cost another **304 B** (660 → 356). Commit 3 gave **136 B back**
@@ -859,12 +861,13 @@ more were added on top:
 | `0009-settings-import-legacy-record` | `98d6fae` | one-time import of the 2.0.x v8 record into the 2.1.0 journal, then erases both legacy sectors |
 | `0010-settings-tab-arabic-pages` | `ce49d0c` | one Settings tab with a chip row; Arabic for the power pages, English and LTR for the Settings group |
 | `0011-restart-button` | `adae332` | half-width on/off switch plus a per-outlet Restart (off, 5 s, on), disabled when off or locked |
+| `0012-restart-hidden-when-off-or-locked` | `b21aaa5` | show the Restart button only on an on, unlocked outlet; keep it visible during the countdown |
 
 `git am patches/00*.patch` on a clean `v2.1.0` checkout reproduces tree
-`825aa414d81667e99c5b2137b89fc91fbb9e4631`; the host suite passes **265 checks / 0 failed** and the
+`1f867eaf3e73802778e4b8ff45175cf10fe3bbc7`; the host suite passes **265 checks / 0 failed** and the
 four node tests (dashboard loading, i18n contract, OTA panel, OTA reconnect) pass. The build
-**`abayoumy-en-ar`** is **333,936 B**, sha256 `c6900b69…`, UI gzip **19,152 B**
-(4,846 + 4,051 + 10,255) and link gap **1,060 B**; rebuilding it produced the identical sha256.
+**`abayoumy-en-ar`** is **333,960 B**, sha256 `9d66280b…`, UI gzip **19,180 B**
+(4,849 + 4,051 + 10,280) and link gap **1,036 B**; rebuilding it produced the identical sha256.
 
 Two test changes pinned the new language contract: Arabic keys must be a subset of the English table,
 every Arabic value must contain Arabic script, and **no Settings key may have an Arabic value** —
@@ -903,25 +906,29 @@ flash also exercised the `0009` legacy import on real hardware for the first tim
 
 `0011` is browser-side only — no C change, no new endpoint — so the firmware differs from the 0010
 build only in the three served assets. Both strips were taken from `86ca2cb9…` to
-`c6900b69…` (same `build_id abayoumy-en-ar`, slot 45056 → 524288).
+`c6900b69…` (`0011`) and then to `9d66280b…` (`0012`), same `build_id abayoumy-en-ar`,
+slot 45056 → 524288 → 45056.
 
 * **Restart shape**: each card's action row is a two-column flex row, so the on/off switch is half the
-  card (113 px of 276 px in the desktop grid) and *Restart* takes the other half. It is disabled while
-  the outlet is off, locked, mid-command or the device is not ready; it stays visible and dimmed
-  rather than disappearing, so toggling an outlet does not reflow the card.
+  card (113 px of 276 px in the desktop grid) and *Restart* takes the other half. `0012` then makes
+  the button appear **only** on an outlet that is on and unlocked: off and locked outlets show the
+  switch alone at full width (234 px), and the button returns during the five-second countdown so the
+  cycle stays visible. It is still disabled while another command is pending or the device is not
+  ready.
 * **Behaviour, stubbed API (headless Edge)**: click on an on/outlet → `POST /api/control`
   `off`, the button counts `5 → 1` with the switch disabled and showing `مطفي`, then `on` five
   seconds later; the log reads `Outlet 1: restarting (off for 5 s)`. On the same page the restart
-  button was disabled for the off outlet, for both locked outlets, and for the outlet next door while
-  its command was pending. Arabic page: `ريستارت`, `ريستارت 3` during the countdown.
+  button was **hidden** for the off outlet and for both locked outlets, and disabled on the
+  on/unlocked card while the outlet next door's command was pending. Arabic page: `ريستارت`,
+  `ريستارت 3` during the countdown.
 * **Behaviour, real strip**: BedRoom `10.0.0.54`, Monitor outlet (`10.0.0.54` ch3, on, unlocked) —
   the browser sent `off` then `on` through the device; the outlet came back on and the log carried the
   same line. `PVE1` (locked) and the other locked outlet never enabled the button.
 * **Settings**: `/api/config` was byte-identical across each flash — `.54` `34999bb0…` (still
   `language: 1`, `button_lock: 9`) and `.53` `2e512e6b…` (the imported 2.0.x record, `language: 1`);
   afterwards both were switched to Arabic from the header. `button_lock` and every other field are
-  untouched. Serving UI hashes match the build exactly (`/ a1d28ba7…`, `i18n.js 1cad4a47…`,
-  `live.js 7d8bac0f…`).
+  untouched. Serving UI hashes match the build exactly (`/ bcf5d200…`, `i18n.js 1cad4a47…`,
+  `live.js 046d1fa3…`).
 * **API note**: `POST /api/config` replaces the record. A client that posts a record with an empty
   `mqtt_password` must send `X-MTTL-Keep-Password: 1` or the broker password is **cleared** — the web
   UI always sends it when the password field is left empty, but a proxy, curl one-liner or script that

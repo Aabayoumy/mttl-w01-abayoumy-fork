@@ -6,7 +6,7 @@ Each patch exists twice: `.patch` is `git format-patch` output (apply with
 ## Live series — applies to upstream **v2.1.0** (`2932fb8`)
 
 Base: upstream tag `v2.1.0` (upstream `main`). Result: branch
-`feature/protection-v2-2.1`, tree `825aa414d81667e99c5b2137b89fc91fbb9e4631`.
+`feature/protection-v2-2.1`, tree `1f867eaf3e73802778e4b8ff45175cf10fe3bbc7`.
 
 | patch | commit | what it does |
 |---|---|---|
@@ -21,9 +21,10 @@ Base: upstream tag `v2.1.0` (upstream `main`). Result: branch
 | `0009-settings-import-legacy-record` | `98d6fae` | one-time import of the 2.0.x settings record into the 2.1.0 journal |
 | `0010-settings-tab-arabic-pages` | `ce49d0c` | Wi-Fi/MQTT/Firmware/Logs behind one Settings tab with a chip row; Egyptian Arabic for the power pages (editors and event log included); the Settings group stays English and LTR; RTL at the document root |
 | `0011-restart-button` | `adae332` | half-width on/off switch plus a per-outlet Restart (off, 5 s, on); disabled when the outlet is off or locked; countdown and English log lines |
+| `0012-restart-hidden-when-off-or-locked` | `b21aaa5` | the Restart button is hidden unless the outlet is on and unlocked (it stays visible during the countdown) |
 
-Verified: `git am patches/0001-*.patch … 0011-*.patch` on a clean `v2.1.0`
-checkout reproduces tree `825aa41…` exactly, the host suite passes (265 checks,
+Verified: `git am patches/0001-*.patch … 0012-*.patch` on a clean `v2.1.0`
+checkout reproduces tree `1f867ea…` exactly, the host suite passes (265 checks,
 0 failed) and the four dashboard/OTA/i18n node tests pass (i18n: 9 checks).
 
 ## Upstream 2.1.0 storage (why `0009` exists)
