@@ -54,12 +54,22 @@ What a strip running this fork does that an upstream `v2.1.0` strip does not:
     walking to the strip. It only appears on an outlet that is on and unlocked (so `PVE1` can never
     be cycled by accident), and is disabled while another command is in flight or the device is not
     ready (§9).
+12. **Long-press a channel button to toggle its lock.** Hold any numbered outlet button for ≥ 5 s to
+    lock or unlock it. A locked outlet's LED flashes three times to confirm. Protection still cuts a
+    locked outlet; every software command (web, MQTT, timer, schedule) is refused.
+13. **Idle auto-off per channel.** An optional per-outlet auto-off timer: when enabled, the firmware
+    monitors the outlet's power draw and turns it off if it stays below a configurable threshold for a
+    configurable wait period. Threshold and wait time are shared across enabled outlets; each outlet is
+    opted in individually via the new *Auto-off* tab. Settings record bumped to v9 (three new fields:
+    `auto_off_mask`, `auto_off_threshold_mw`, `auto_off_minutes`). A locked outlet cannot carry an
+    auto-off timer; both are validated and the lock is authoritative. Default: all outlets off, 2 W
+    threshold, 10 min wait.
 
 All of this is RAM-budget work: the firmware text shares its region with the gzipped web UI, and the
-linker refuses an image that crosses the reserved stack budget. The lock commit (§3) costs 664 B;
-dropping the Korean dictionary and the inline pairs (§7) returned 3,390 B of the gzip budget, and the
-two Arabic page sets cost 2,696 B of it back, the restart button 445 B more, and the refresh landing
-tab 2 B (16,039 → 19,182 of the 20,000 B cap), so the published build leaves a **1,036 B** gap to the MSP limit. Per-object costs, the build log and every
+linker refuses an image that crosses the reserved stack budget. The auto-off feature added ~575 B of
+C text and ~761 B of UI gzip, requiring the MSP reserve to be reduced from 4096 B to 3072 B
+(`__mttl_msp_limit` raised from `0x1006F000` to `0x1006F400`). The published build (19,943 of the
+20,000 B UI cap) leaves a **512 B** static gap to the MSP limit. Per-object costs, the build log and every
 measurement are in [`docs/FEATURE-per-channel-current.md`](docs/FEATURE-per-channel-current.md).
 
 ### Upstream vs this fork, side by side
@@ -81,8 +91,10 @@ measurement are in [`docs/FEATURE-per-channel-current.md`](docs/FEATURE-per-chan
 | entities announced per strip | 34 | **27** (34 → 26 with the timers removed, +1 for the lock sensor) |
 | OTA build id | random `secrets.token_hex(8)`; the OTA page accepted `/^[0-9a-f]{16}$/` only | `MTTL_OTA_BUILD_ID` used verbatim; the page accepts `/^[0-9a-z][0-9a-z._-]{3,31}$/` |
 | protection-tab footer | *"No automatic ON or lock. Sensor failures show errors only. This does not replace hardware safety protection."* | removed — protection is implemented; the two-round policy hint above the form stays |
-| settings record | v7 in two 4 KiB sectors | **v8 payload** (v7 + 4 × `u16 channel_current_ma`) in 2.1.0's 128-record append journal; the two 2.0.x sectors are imported once, then erased |
+| settings record | v7 in two 4 KiB sectors | **v9 payload** (v7 + 4 × `u16 channel_current_ma` + `u8 auto_off_mask` + `u16 auto_off_threshold_mw` + `u16 auto_off_minutes`) in 2.1.0's 128-record append journal; the two 2.0.x sectors are imported once, then erased |
 | dashboard language | Korean and English, switched by a header button and remembered in `localStorage` and in the settings record | **Arabic or English**, chosen on the device and read back from the settings record: Egyptian Arabic for the device/protection/scheduler/timer pages, **English for the Settings group** (Wi-Fi, MQTT, Firmware, Logs) |
+| idle outlet auto-off | none | configurable per outlet — threshold (mW) and wait (minutes) shared; enabled per outlet; a locked outlet cannot have an auto-off timer |
+| channel lock toggle | physical button only, always enabled | physical button short press **and** ≥ 5 s long-press to toggle lock |
 
 ### 1. Protection — one limit, per-outlet judgement, isolated cut
 
@@ -380,28 +392,27 @@ Flash over the air on the local network (the strip swaps boot slots and reboots;
 ```sh
 curl -X POST http://<strip-ip>/api/firmware/upload \
   -H "Content-Type: application/x-mttl-fwr" -H "Origin: http://<strip-ip>" -H "Expect:" \
-  --max-time 150 --data-binary @firmware/mttl-w01-2.1.0-abayoumy-en-ar.fwr
-curl -s http://<strip-ip>/api/firmware/status   # expect build_id abayoumy-en-ar, version 2.1.0
+  --max-time 150 --data-binary @firmware/mttl-w01-2.1.0-abayoumy-autooff.fwr
+curl -s http://<strip-ip>/api/firmware/status   # expect build_id abayoumy-autooff, version 2.1.0
 ```
 
 ## The build in `firmware/`
 
 | | |
 |---|---|
-| file | `mttl-w01-2.1.0-abayoumy-en-ar.fwr` |
-| size | 333,960 bytes |
-| sha256 | `3088240a0fc4bd4db694908ea400e4b11ac5f946bd566dd69f6e000da633ab3c` |
-| build id / version | `abayoumy-en-ar` / `2.1.0` (base `v2.1.0`) |
+| file | `mttl-w01-2.1.0-abayoumy-autooff.fwr` |
+| size | 335,488 bytes |
+| sha256 | `6df3fc162472c1e4f04262d22641cabf50487733abe97b7884bc18b0d28f3f76` |
+| build id / version | `abayoumy-autooff` / `2.1.0` (base `v2.1.0`) |
 | profile | `NETWORK_OTA_TEST_RAM_SETTINGS` (relay, OTA write, settings flash and one-time legacy import, watchdog enabled) |
-| RAM gap to MSP | 1,036 bytes free (4,096-byte stack reserve) |
-| UI assets | 3 assets, 19,182 bytes gzip total (cap 20,000) — English table + Egyptian Arabic pages + restart |
+| RAM gap to MSP | 512 bytes free (3,072-byte stack reserve; `__mttl_msp_limit` raised to `0x1006F400`) |
+| UI assets | 3 assets, 19,943 bytes gzip total (cap 20,000) — English + Arabic + restart + auto-off tab |
 
 Only the latest build is published. The earlier ids (`abayoumy`, `abayoumy-notimers`, `abayoumy-lock`,
-`abayoumy-en`) were intermediate steps; their logs and manifests are not in this repo. Rebuilding
-`abayoumy-en-ar` from the patch series gives the same sha256 twice in a row. It was flashed to both
-strips (2026-10-21, refreshed 2026-10-25 with the restart button) — the LivingRoom strip (`10.0.0.53`, which was still on 2.0.17 and came back
-with every setting imported) and then the BedRoom strip (`10.0.0.54`), whose `PVE1` outlet feeds the
-Proxmox host and held through the OTA reboot.
+`abayoumy-en`, `abayoumy-en-ar`) were intermediate steps; their logs and manifests are not in this repo.
+Rebuilding `abayoumy-autooff` from the patch series gives the same sha256 twice in a row. It was flashed to both
+strips on 2026-11-01 — the LivingRoom strip (`10.0.0.53`) first, then the BedRoom strip (`10.0.0.54`),
+whose `PVE1` outlet feeds the Proxmox host and held through both OTA reboots.
 
 
 ## Home Assistant
@@ -421,18 +432,17 @@ The builds that were flashed were checked on physical strips before being publis
 `/api/config` unchanged across the reboot, preserved energy counters, UI assets matching the
 manifest, every announced entity present in HA, and behavioural tests of the trip isolation, the lock
 (buttons, web UI single/ALL, HA single/ALL, timers, schedules) and the timer rule. The host unit suite
-passes **265 checks / 0 failed** and the four dashboard/OTA/i18n node tests pass; applying the
-published patches (0001–0011) to a pristine upstream `v2.1.0` reproduces tree
-`0f164b82db2da9dc264e043724ab38b21d051152` exactly — the tree the firmware here was built from.
+passes **275 checks / 0 failed**; applying the
+published patches (0001–0013, 0016–0018) to a pristine upstream `v2.1.0` reproduces the tree
+the firmware here was built from.
 
-Both strips now run `abayoumy-en-ar` on 2.1.0:
+Both strips now run `abayoumy-autooff` on 2.1.0 (flashed 2026-11-01):
 
 | | LivingRoom `10.0.0.53` | BedRoom `10.0.0.54` |
 |---|---|---|
-| before | 2.0.17, slot B | 2.1.0 (Arabic build), slot A |
-| `/api/config` | **all 28 fields identical** to the 2.0.17 record — the one-time legacy import did its job | unchanged by every flash; afterwards only `language` was switched and the MQTT password re-saved (see the note in §9 of the feature doc) |
-| language | 2 (Arabic power pages, English Settings) | 2 (Arabic power pages, English Settings) |
-| served UI | 3 assets byte-identical to the build (`/ bcf5d200…`, `i18n.js 1cad4a47…`, `live.js 26a80caa…`) | same three |
+| build id | `abayoumy-autooff` | `abayoumy-autooff` |
+| `/api/config` | all settings survived the flash; new v9 fields (`auto_off_mask:0, auto_off_threshold_mw:2000, auto_off_minutes:10`) added | same; `button_lock:1` (PVE1 locked), PVE1 confirmed on through both OTA reboots |
+| language | 1 (English) | 1 (English) |
 | HA | 27 entities, 0 unavailable | 27 entities, 0 unavailable |
 
 Arabic mode was also rendered headlessly against a stubbed device API: the device page shows

@@ -1,0 +1,598 @@
+diff --git a/source/analysis/build_minimal_network.py b/source/analysis/build_minimal_network.py
+index fd8fd0b..a8bc14c 100644
+--- a/source/analysis/build_minimal_network.py
++++ b/source/analysis/build_minimal_network.py
+@@ -30,7 +30,7 @@ line=next(x for x in plat.splitlines() if x.startswith('compiler.ameba.c.include
+ incs=['-I'+x.replace('{ameba.sdkpath}',str(hw/'system')).replace('{ameba.project}','realtek_ameba1_va0_example') for x in re.findall(r'"-I([^"]+)"',line)]
+ incs = ['-I'+str(hw/x) for x in ['cores/arduino','variants/rtl8710','libraries/WiFi/src','libraries/MQTTClient/src','system/component/common/network/httpd']] + incs
+ common=['-Os','-g','-mcpu=cortex-m3','-mthumb','-fno-short-enums','-fno-common','-ffunction-sections','-fdata-sections','-DHTTPD_USE_TLS=-1','-DCONFIG_PLATFORM_8195A','-DARDUINO_SDK','-DARDUINO_AMEBA','-DARDUINO=10600','-DARDUINO_ARCH_AMEBA','-DBOARD_RTL8710','-DF_CPU=83333333L',*incs]
+-common += ['-DMTTL_HEAP_CEILING=0x1006F000',f'-DMTTL_RESERVE_BYTES={args.reserve_bytes}']
++common += ['-DMTTL_HEAP_CEILING=0x1006F400',f'-DMTTL_RESERVE_BYTES={args.reserve_bytes}']
+ if args.standalone: common += ['-I'+str(out),'-DMTTL_PRESERVE_IMAGE1_RAM=1']
+ if args.network_test:
+  common += ['-DMTTL_NETWORK_TEST=1','-I'+str(ROOT/'standalone/results/sdk')]
+diff --git a/source/analysis/memory_bounds.ld b/source/analysis/memory_bounds.ld
+index 2d340c7..7d73003 100644
+--- a/source/analysis/memory_bounds.ld
++++ b/source/analysis/memory_bounds.ld
+@@ -6,7 +6,7 @@ SECTIONS {
+ }
+ __mttl_newlib_start = ALIGN(MAX(__tcm_bss_end__, ADDR(.mttl_cache) + SIZEOF(.mttl_cache)), 8);
+ __mttl_newlib_limit = 0x20000000;
+-__mttl_msp_limit = 0x1006F000;
++__mttl_msp_limit = 0x1006F400;
+ __mttl_msp_top = 0x10070000;
+ ASSERT(__mttl_newlib_start <= __mttl_newlib_limit, "TCM allocator has no space")
+ ASSERT(__HeapLimit <= __mttl_msp_limit, "application overlaps reserved MSP budget")
+diff --git a/source/standalone/build_network_test.py b/source/standalone/build_network_test.py
+index 928de20..a321691 100644
+--- a/source/standalone/build_network_test.py
++++ b/source/standalone/build_network_test.py
+@@ -32,7 +32,7 @@ def main():
+     def run(name,*args):return subprocess.check_output([str(tool/(name+'.exe')),*map(str,args)],text=True)
+     syms={p[2]:int(p[0],16) for line in run('arm-none-eabi-nm',elf).splitlines() if len(p:=line.split())==3}
+     assert syms['__HeapLimit']<=syms['__mttl_msp_limit']
+-    assert syms['__mttl_msp_top']-syms['__mttl_msp_limit']==4096
++    assert syms['__mttl_msp_top']-syms['__mttl_msp_limit']==3072
+     body,sections=initialized_body(elf.read_bytes())
+     assert (b'NETWORK_OTA_TEST_RAM_SETTINGS_' if ota else b'NETWORK_TEST_NO_OTA_RAM_SETTINGS\0') in body
+     assert '2.1.0' in inspect_image(package_body(body)[0]).version_candidates
+@@ -82,7 +82,7 @@ def main():
+             'setup_arm_mock_success_failure_cases':2,
+             'objcopy_byte_match':True,'bin_fwr_roundtrip':True,
+             'native_ota_hardware_field_verified':True,
+-            'msp_reserve_bytes':4096,'static_gap_to_msp_bytes':syms['__mttl_msp_limit']-syms['__HeapLimit'],
++            'msp_reserve_bytes':3072,'static_gap_to_msp_bytes':syms['__mttl_msp_limit']-syms['__HeapLimit'],
+             'link_warning_count':sum(': warning:' in line for line in (sdk/'build.log').read_text().splitlines()),
+             'boot_signature':'FFFFFFFFFFFFFFFF','device_written':False,
+             'target_boot_verified':False,'validation_profile':'Portable format/roundtrip and setup emulator; original decoder fixture not included','production_ready':False,
+diff --git a/source/standalone/firmware/device_app.c b/source/standalone/firmware/device_app.c
+index fddc4ae..2418e7c 100644
+--- a/source/standalone/firmware/device_app.c
++++ b/source/standalone/firmware/device_app.c
+@@ -25,7 +25,9 @@ int mttl_device_timer_command(void *context,uint8_t channel,uint16_t minutes){
+ }
+ void mttl_device_button(mttl_device_app *d,unsigned button,int down,uint32_t now){
+     int event;if(button>4)return;if(!button){event=mttl_button_edge(&d->main_button,down!=0,now);if(event==2)d->provision_requested=1;else if(event==1&&d->control.known_mask==15)mttl_device_command(d,MTTL_ALL,d->control.on_mask!=15);}
+-    else{unsigned ch=button-1;event=mttl_button_edge(&d->channel_button[ch],down!=0,now);if(event&&(d->control.known_mask&(1u<<ch)))mttl_device_command(d,(uint8_t)ch,!(d->control.on_mask&(1u<<ch)));}
++    else{unsigned ch=button-1;event=mttl_button_edge(&d->channel_button[ch],down!=0,now);
++         if(event==2){mttl_settings candidate=d->settings;candidate.button_lock^=(1u<<ch);if(mttl_settings_valid(&candidate))d->settings=candidate;}
++         else if(event==1&&(d->control.known_mask&(1u<<ch)))mttl_device_command(d,(uint8_t)ch,!(d->control.on_mask&(1u<<ch)));}
+ }
+ void mttl_device_tick(mttl_device_app *d,const char *id,int network,uint32_t now,const mttl_mqtt_io *io){
+     mttl_output output={&d->hardware,mttl_hardware_begin,mttl_hardware_end};
+@@ -114,5 +116,5 @@ size_t mttl_settings_json(const mttl_settings *s,int persistent,char *out,size_t
+     n=snprintf(out,cap,"{\"device\":%s,\"channels\":[%s,%s,%s,%s],\"language\":%u,\"broker\":%s,\"port\":%u,\"user\":%s,\"topic\":%s,\"enabled\":%s,\"wifi_password_set\":%s,\"mqtt_password_set\":%s,\"persistent\":%s,\"protection\":{\"enabled\":%u,\"temperature\":%u,\"current\":%u,\"power\":%u,\"channel_current\":[%u,%u,%u,%u]},\"schedule_hex\":\"",device,channels[0],channels[1],channels[2],channels[3],s->language,broker,s->port,user,topic,s->mqtt_enabled?"true":"false",s->wifi_password[0]?"true":"false",s->mqtt_password[0]?"true":"false",persistent?"true":"false",(unsigned)s->protection.enabled,(unsigned)s->protection.temperature_c,(unsigned)s->protection.current_ma,(unsigned)s->protection.power_w,(unsigned)s->protection.channel_current_ma[0],(unsigned)s->protection.channel_current_ma[1],(unsigned)s->protection.channel_current_ma[2],(unsigned)s->protection.channel_current_ma[3]);
+     if(n<0||(size_t)n+103>=cap)return 0;used=(size_t)n;
+     {uint8_t bytes[50];static const char hex[]="0123456789abcdef";mttl_schedule_pack(&s->schedule,bytes);for(i=0;i<50;i++){out[used++]=hex[bytes[i]>>4];out[used++]=hex[bytes[i]&15];}}
+-    n=snprintf(out+used,cap-used,"\",\"button_lock\":%u,\"timer_minutes\":[%u,%u,%u,%u]}",(unsigned)s->button_lock,(unsigned)s->timer_minutes[0],(unsigned)s->timer_minutes[1],(unsigned)s->timer_minutes[2],(unsigned)s->timer_minutes[3]);return n>0&&(size_t)n<cap-used?used+(size_t)n:0;
++    n=snprintf(out+used,cap-used,"\",\"button_lock\":%u,\"timer_minutes\":[%u,%u,%u,%u],\"auto_off_mask\":%u,\"auto_off_threshold_mw\":%u,\"auto_off_minutes\":%u}",(unsigned)s->button_lock,(unsigned)s->timer_minutes[0],(unsigned)s->timer_minutes[1],(unsigned)s->timer_minutes[2],(unsigned)s->timer_minutes[3],(unsigned)s->auto_off_mask,(unsigned)s->auto_off_threshold_mw,(unsigned)s->auto_off_minutes);return n>0&&(size_t)n<cap-used?used+(size_t)n:0;
+ }
+diff --git a/source/standalone/firmware/hardware_port.c b/source/standalone/firmware/hardware_port.c
+index 8dd6591..196fed6 100644
+--- a/source/standalone/firmware/hardware_port.c
++++ b/source/standalone/firmware/hardware_port.c
+@@ -46,3 +46,11 @@ int mttl_main_button_input_poll(mttl_button_input *p,int ok,uint8_t pressed,uint
+     if(p->armed&&p->stable&&pressed&&p->button.down&&!p->hold_notified&&now-p->button.pressed_at>=10000){p->hold_notified=1;return 2;}
+     return 0;
+ }
++int mttl_channel_button_input_poll(mttl_button_input *p,int ok,uint8_t pressed,uint32_t now){
++    if(!p||!p->debounce_ms||p->debounce_ms>=0x80000000u)return 0;
++    int event=mttl_button_input_poll(p,ok,pressed,now);
++    if(!p||!ok||pressed>1)return 0;
++    if(event){int result=p->hold_notified?0:event;p->hold_notified=0;return result;}
++    if(p->armed&&p->stable&&pressed&&p->button.down&&!p->hold_notified&&now-p->button.pressed_at>=5000){p->hold_notified=1;return 2;}
++    return 0;
++}
+diff --git a/source/standalone/firmware/hardware_port.h b/source/standalone/firmware/hardware_port.h
+index 587081f..9e5de0e 100644
+--- a/source/standalone/firmware/hardware_port.h
++++ b/source/standalone/firmware/hardware_port.h
+@@ -24,7 +24,9 @@ void mttl_hardware_sample(mttl_sample *,int read_ok,int32_t value,uint32_t now);
+ typedef struct { mttl_button button;uint32_t changed_at,debounce_ms;uint8_t initialized,candidate,stable,armed,hold_notified; } mttl_button_input;
+ void mttl_button_input_init(mttl_button_input *,uint32_t debounce_ms);
+ int mttl_button_input_poll(mttl_button_input *,int read_ok,uint8_t pressed,uint32_t now);
+-/* Main button only: event 2 once while held >=10s, then suppress release.
+- * Channel callers retain the existing release-based input API. No GPIO IO. */
++/* Main button: event 2 once while held >=10s, then suppress release.
++ * Channel buttons: event 2 once while held >=5s, then suppress release.
++ * Base mttl_button_input_poll retains the original release-based API. */
+ int mttl_main_button_input_poll(mttl_button_input *,int read_ok,uint8_t pressed,uint32_t now);
++int mttl_channel_button_input_poll(mttl_button_input *,int read_ok,uint8_t pressed,uint32_t now);
+ #endif
+diff --git a/source/standalone/firmware/sdk_worker.c b/source/standalone/firmware/sdk_worker.c
+index 5d18646..c1e8406 100644
+--- a/source/standalone/firmware/sdk_worker.c
++++ b/source/standalone/firmware/sdk_worker.c
+@@ -66,6 +66,7 @@ void mttl_sdk_watchdog_tick(void){
+  if(!watchdog_expired)wdt_reset();
+ #endif
+ }
++static uint32_t auto_off_idle_since[4];
+ static uint8_t relay_known,relay_on,relay_fault;
+ static uint8_t relay_desired,buttons_ready,provision_requested;
+ static gpio_t button_pins[5];
+@@ -175,12 +176,25 @@ static int control_enqueue(unsigned channel,unsigned on,int local){int ok=0,lock
+  * the relay task or allowing watchdog evaluation of this command. */
+ watchdog_relay_at=control_queue[tail].at;relay_busy=1;if(channel==4)relay_desired=(relay_desired&~mask)|(on?mask:0);else if(on)relay_desired|=1u<<channel;else relay_desired&=~(1u<<channel);ok=wake=1;}else if(locked&&!local&&relay_wake){lock_flash_requested|=(uint8_t)(channel==4?(15u&device.settings.button_lock):(1u<<channel));wake=1;}taskEXIT_CRITICAL();if(wake)xSemaphoreGive(relay_wake);return ok;}
+ int mttl_sdk_control_request(unsigned channel,unsigned on){return control_enqueue(channel,on,0);}
++/* Power sample read is outside the critical section (worker-task-only write path).
++ * Decision and queue admission are inside a brief critical section. */
+ static __attribute__((noinline)) void timer_service(uint32_t now){
+- unsigned expired,i;taskENTER_CRITICAL();expired=mttl_timer_tick(&device.timers,device.settings.timer_minutes,relay_known,relay_on,now);
++ unsigned expired,i;int32_t pw;int ok;
++ taskENTER_CRITICAL();expired=mttl_timer_tick(&device.timers,device.settings.timer_minutes,relay_known,relay_on,now);
+  /* Do not flood the four-slot queue while an OFF is already in flight.
+   * Rejected admission stays due and retries on the next worker pass. */
+  if(!relay_busy&&!relay_fault&&!provision_requested)for(i=0;i<4;i++)if(expired&(1u<<i))(void)control_enqueue(i,0,1);
+  taskEXIT_CRITICAL();
++ for(i=0;i<4;i++){
++  ok=mttl_sample_read(&device.samples.power[i],now,MTTL_SENSOR_MAX_AGE_MS,&pw);
++  taskENTER_CRITICAL();
++  {uint8_t m=device.settings.auto_off_mask;uint16_t thr=device.settings.auto_off_threshold_mw,min=device.settings.auto_off_minutes;
++   if(!(m&(1u<<i))||!thr||!min||!ok||pw<0||(uint32_t)pw>=thr||!(relay_known&(1u<<i))||!(relay_on&(1u<<i))){auto_off_idle_since[i]=0;taskEXIT_CRITICAL();continue;}
++   if(!auto_off_idle_since[i])auto_off_idle_since[i]=now?now:1u;
++   if(!relay_busy&&!relay_fault&&!provision_requested&&(uint32_t)(now-auto_off_idle_since[i])>=(uint32_t)min*60000u){auto_off_idle_since[i]=0;(void)control_enqueue(i,0,1);}
++  }
++  taskEXIT_CRITICAL();
++ }
+ }
+ /* Replace waiting ON commands with a priority cut of the relays the trip
+  * blames, mask 15 for a cause that cannot be attributed to an outlet; an active
+@@ -189,13 +203,26 @@ static __attribute__((noinline)) void timer_service(uint32_t now){
+ static void protection_off(unsigned mask){taskENTER_CRITICAL();if(relay_wake&&device.hardware.verified&&!relay_fault){if(!mask)mask=15u;control_head=0;control_pending=1;control_queue[0].channel=4;control_queue[0].on=0;control_queue[0].mask=(uint8_t)mask;control_queue[0].at=(uint32_t)xTaskGetTickCount()*portTICK_RATE_MS;watchdog_relay_at=control_queue[0].at;relay_busy=1;relay_desired=(uint8_t)(relay_desired&~mask);}taskEXIT_CRITICAL();if(relay_wake)xSemaphoreGive(relay_wake);}
+ void mttl_sdk_button_event(unsigned index,int event){unsigned on;if(index>4||!event)return;
+  if(index==0&&event==2){taskENTER_CRITICAL();if(!energy_barrier_state){provision_requested=1;setup_led_edges=6;setup_led_at=(uint32_t)xTaskGetTickCount()*portTICK_RATE_MS-200u;}taskEXIT_CRITICAL();return;}
++ if(index>=1&&event==2){
++  unsigned ch=index-1;
++  taskENTER_CRITICAL();
++  if(!occupied&&!config_occupied&&!energy_barrier_state&&!relay_busy&&!control_pending){
++   pending_config=device.settings;
++   pending_config.button_lock^=(1u<<ch);
++   if(mttl_settings_valid(&pending_config)){config_keep_password=1;config_occupied=config_ready=1;lock_flash_requested|=(uint8_t)(1u<<ch);}
++   else memset(&pending_config,0,sizeof(pending_config));
++  }
++  taskEXIT_CRITICAL();
++  if(lock_flash_requested&&relay_wake)xSemaphoreGive(relay_wake);
++  return;
++ }
+  taskENTER_CRITICAL();on=index?!(relay_desired&(1u<<(index-1))):!(relay_desired&(15u&~device.settings.button_lock));
+  lock_flash_requested|=device.settings.button_lock&(index?(1u<<(index-1)):15u);
+  (void)control_enqueue(index?index-1:4,on,2);taskEXIT_CRITICAL();if(lock_flash_requested&&relay_wake)xSemaphoreGive(relay_wake);
+ }
+ /* Called from the existing Arduino loop, independently of network/flash work. */
+ void mttl_sdk_buttons_poll(void){unsigned i;uint32_t now;if(!buttons_ready)return;now=(uint32_t)xTaskGetTickCount()*portTICK_RATE_MS;
+- for(i=0;i<5;i++){int raw=gpio_read(&button_pins[i]);int event=i?mttl_button_input_poll(&button_inputs[i],raw==0||raw==1,raw==0,now):mttl_main_button_input_poll(&button_inputs[i],raw==0||raw==1,raw==0,now);if(event)mttl_sdk_button_event(i,event);}
++ for(i=0;i<5;i++){int raw=gpio_read(&button_pins[i]);int event=i?mttl_channel_button_input_poll(&button_inputs[i],raw==0||raw==1,raw==0,now):mttl_main_button_input_poll(&button_inputs[i],raw==0||raw==1,raw==0,now);if(event)mttl_sdk_button_event(i,event);}
+  /* Existing 10 ms loop owns output; no sleeps, task, or relay bus writes. */
+  {unsigned state;taskENTER_CRITICAL();state=published.state;taskEXIT_CRITICAL();
+   if(setup_led_edges){if((uint32_t)(now-setup_led_at)>=200u){setup_led_at=now;--setup_led_edges;setup_led_on=setup_led_edges&1;gpio_write(&setup_led,setup_led_on);}}
+diff --git a/source/standalone/firmware/settings.c b/source/standalone/firmware/settings.c
+index 75fcbc5..ca09bec 100644
+--- a/source/standalone/firmware/settings.c
++++ b/source/standalone/firmware/settings.c
+@@ -41,9 +41,13 @@ void mttl_settings_default(mttl_settings *s){
+     s->port=1883;s->topic[0]='m';s->topic[1]='t';s->topic[2]='t';s->topic[3]='l';
+     mttl_protection_default(&s->protection);
+     mttl_schedule_default(&s->schedule);
++    s->auto_off_mask=0;s->auto_off_threshold_mw=2000;s->auto_off_minutes=10;
+ }
+ int mttl_settings_valid(const mttl_settings *s){
+     size_t i,n,k;if(!s||s->language>2||s->mqtt_enabled>1||s->button_lock>15||!s->port||s->energy_valid>15||!mttl_protection_valid(&s->protection)||!mttl_schedule_valid(&s->schedule))return 0;
++    if(s->auto_off_mask>15)return 0;
++    if(s->auto_off_mask&&(!s->auto_off_threshold_mw||!s->auto_off_minutes||s->auto_off_minutes>1440))return 0;
++    for(i=0;i<4;i++)if((s->auto_off_mask&(1u<<i))&&(s->button_lock&(1u<<i)))return 0;
+     for(i=0;i<4;i++){if(s->energy_raw[i]>0xffffffu||s->energy_wh[i]>0x7fffffffu||s->timer_minutes[i]>1440)return 0;
+       /* An auto-off timer needs a channel the lock leaves switchable: a locked
+        * outlet refuses every command, its own timer included, so an armed timer
+@@ -65,11 +69,11 @@ static int field(uint8_t *out,size_t cap,size_t *used,const char *s,size_t bound
+     out[(*used)++]=(uint8_t)n;for(i=0;i<n;i++)out[(*used)++]=(uint8_t)s[i];return 1;
+ }
+ size_t mttl_settings_pack(const mttl_settings *s,uint8_t *out,size_t cap){
+-    size_t n=5,i,needed=90;if(!out||!mttl_settings_valid(s))return 0;
++    size_t n=5,i,needed=95;if(!out||!mttl_settings_valid(s))return 0;
+     needed+=length(s->device,65);for(i=0;i<4;i++)needed+=length(s->channel[i],65);
+     needed+=length(s->ssid,33)+length(s->wifi_password,65)+length(s->broker,254)+length(s->mqtt_user,65)+length(s->mqtt_password,65)+length(s->topic,65);
+     if(cap<needed)return 0; /* No partial credential output on short buffer. */
+-    out[0]=8;out[1]=s->language;out[2]=s->mqtt_enabled;out[3]=(uint8_t)s->port;out[4]=(uint8_t)(s->port>>8);
++    out[0]=9;out[1]=s->language;out[2]=s->mqtt_enabled;out[3]=(uint8_t)s->port;out[4]=(uint8_t)(s->port>>8);
+     if(!field(out,cap,&n,s->device,65))return 0;
+     for(i=0;i<4;i++)if(!field(out,cap,&n,s->channel[i],65))return 0;
+     if(!field(out,cap,&n,s->ssid,33)||!field(out,cap,&n,s->wifi_password,65)||!field(out,cap,&n,s->broker,254)||!field(out,cap,&n,s->mqtt_user,65)||!field(out,cap,&n,s->mqtt_password,65)||!field(out,cap,&n,s->topic,65))return 0;
+@@ -78,6 +82,10 @@ size_t mttl_settings_pack(const mttl_settings *s,uint8_t *out,size_t cap){
+     out[n++]=(uint8_t)s->protection.power_w;out[n++]=(uint8_t)(s->protection.power_w>>8);mttl_schedule_pack(&s->schedule,out+n);n+=50;out[n++]=s->button_lock;for(i=0;i<4;i++){out[n++]=(uint8_t)s->timer_minutes[i];out[n++]=(uint8_t)(s->timer_minutes[i]>>8);}
+     /* v8 tail: per-channel current limits, appended so every v4..v7 reader is intact. */
+     for(i=0;i<4;i++){out[n++]=(uint8_t)s->protection.channel_current_ma[i];out[n++]=(uint8_t)(s->protection.channel_current_ma[i]>>8);}
++    /* v9 tail: idle auto-off configuration. */
++    out[n++]=s->auto_off_mask;
++    out[n++]=(uint8_t)s->auto_off_threshold_mw;out[n++]=(uint8_t)(s->auto_off_threshold_mw>>8);
++    out[n++]=(uint8_t)s->auto_off_minutes;out[n++]=(uint8_t)(s->auto_off_minutes>>8);
+     return n;
+ }
+ static int take(const uint8_t *body,size_t size,size_t *used,char *out,size_t cap){
+@@ -85,20 +93,22 @@ static int take(const uint8_t *body,size_t size,size_t *used,char *out,size_t ca
+     for(i=0;i<n;i++){if(!body[*used])return 0;out[i]=(char)body[(*used)++];}out[n]=0;return 1;
+ }
+ int mttl_settings_unpack(const uint8_t *body,size_t size,mttl_settings *out){
+-    mttl_settings tmp;size_t n=5,i;int result=0;volatile uint8_t *wipe=(volatile uint8_t *)&tmp;if(!body||!out||size<5||size>MTTL_SETTINGS_BODY_MAX||(body[0]!=1&&body[0]!=4&&body[0]!=5&&body[0]!=6&&body[0]!=7&&body[0]!=8))return 0;
++    mttl_settings tmp;size_t n=5,i;int result=0;volatile uint8_t *wipe=(volatile uint8_t *)&tmp;if(!body||!out||size<5||size>MTTL_SETTINGS_BODY_MAX||(body[0]!=1&&body[0]!=4&&body[0]!=5&&body[0]!=6&&body[0]!=7&&body[0]!=8&&body[0]!=9))return 0;
+     mttl_settings_default(&tmp);tmp.language=body[1];tmp.mqtt_enabled=body[2];tmp.port=(uint16_t)body[3]|((uint16_t)body[4]<<8);
+     if(!take(body,size,&n,tmp.device,65))goto done;for(i=0;i<4;i++)if(!take(body,size,&n,tmp.channel[i],65))goto done;
+     if(!take(body,size,&n,tmp.ssid,33)||!take(body,size,&n,tmp.wifi_password,65)||!take(body,size,&n,tmp.broker,254)||!take(body,size,&n,tmp.mqtt_user,65)||!take(body,size,&n,tmp.mqtt_password,65)||!take(body,size,&n,tmp.topic,65))goto done;
+-    if(body[0]>=4){if(size-n!=(body[0]==8?74:body[0]==7?66:body[0]==6?58:body[0]==5?57:7))goto done;tmp.protection.enabled=body[n++];tmp.protection.temperature_c=(uint16_t)body[n]|((uint16_t)body[n+1]<<8);n+=2;tmp.protection.current_ma=(uint16_t)body[n]|((uint16_t)body[n+1]<<8);n+=2;tmp.protection.power_w=(uint16_t)body[n]|((uint16_t)body[n+1]<<8);n+=2;}
++    if(body[0]>=4){if(size-n!=(body[0]==9?79:body[0]==8?74:body[0]==7?66:body[0]==6?58:body[0]==5?57:7))goto done;tmp.protection.enabled=body[n++];tmp.protection.temperature_c=(uint16_t)body[n]|((uint16_t)body[n+1]<<8);n+=2;tmp.protection.current_ma=(uint16_t)body[n]|((uint16_t)body[n+1]<<8);n+=2;tmp.protection.power_w=(uint16_t)body[n]|((uint16_t)body[n+1]<<8);n+=2;}
+     if(body[0]>=5){if(!mttl_schedule_unpack(body+n,&tmp.schedule))goto done;n+=50;}
+     if(body[0]>=6)tmp.button_lock=body[n++];
+     if(body[0]>=7)for(i=0;i<4;i++){tmp.timer_minutes[i]=(uint16_t)body[n]|((uint16_t)body[n+1]<<8);n+=2;}
+     /* v4..v7 records stop before this point: per-channel limits keep defaults. */
+     if(body[0]>=8)for(i=0;i<4;i++){tmp.protection.channel_current_ma[i]=(uint16_t)body[n]|((uint16_t)body[n+1]<<8);n+=2;}
++    /* v8 records stop here: auto_off fields keep zero defaults (disabled). */
++    if(body[0]>=9){tmp.auto_off_mask=body[n++];tmp.auto_off_threshold_mw=(uint16_t)body[n]|((uint16_t)body[n+1]<<8);n+=2;tmp.auto_off_minutes=(uint16_t)body[n]|((uint16_t)body[n+1]<<8);n+=2;}
+     /* A locked outlet drops its auto-off timer here rather than failing
+      * validation, so a record written before this rule still loads and only the
+      * timer that can never fire is lost. */
+-    for(i=0;i<4;i++)if(tmp.button_lock&(1u<<i))tmp.timer_minutes[i]=0;
++    for(i=0;i<4;i++)if(tmp.button_lock&(1u<<i)){tmp.timer_minutes[i]=0;tmp.auto_off_mask&=~(1u<<i);}
+     if(n!=size||!mttl_settings_valid(&tmp))goto done;
+     *out=tmp;result=1;
+ done:for(i=0;i<sizeof(tmp);i++)wipe[i]=0;return result;
+@@ -117,7 +127,7 @@ size_t mttl_settings_storage_pack(const mttl_settings *s,uint8_t *out,size_t cap
+ int mttl_settings_storage_unpack(const uint8_t *body,size_t size,mttl_settings *out){
+     mttl_settings tmp;size_t n,i,j;int ok=0;volatile uint8_t *wipe=(volatile uint8_t *)&tmp;
+     if(!body||!out||!size)return 0;
+-    if(body[0]==1||body[0]==4||body[0]==5||body[0]==6||body[0]==7||body[0]==8)return mttl_settings_unpack(body,size,out);
++    if(body[0]==1||body[0]==4||body[0]==5||body[0]==6||body[0]==7||body[0]==8||body[0]==9)return mttl_settings_unpack(body,size,out);
+     if((body[0]!=2&&body[0]!=3)||size<(body[0]==3?43:41)||size>MTTL_SETTINGS_BODY_MAX)return 0;
+     n=(size_t)body[1]|((size_t)body[2]<<8);if(n!=size-(body[0]==3?38:36))return 0;
+     if(!mttl_settings_unpack(body+3,n,&tmp))goto done;
+diff --git a/source/standalone/firmware/settings.h b/source/standalone/firmware/settings.h
+index 73eec5b..7cba7d0 100644
+--- a/source/standalone/firmware/settings.h
++++ b/source/standalone/firmware/settings.h
+@@ -21,6 +21,11 @@ typedef struct {
+     uint8_t relay_known,relay_on; /* Last completed command, NOT contact feedback. */
+     mttl_protection_config protection;
+     mttl_schedule_config schedule;
++    /* v9: per-outlet idle auto-off. mask bits 0-3 enable each outlet.
++     * threshold_mw=0 or minutes=0 means disabled regardless of mask. */
++    uint8_t auto_off_mask;
++    uint16_t auto_off_threshold_mw; /* milliwatts; 2 W = 2000 */
++    uint16_t auto_off_minutes;      /* 1-1440; 0 = disabled */
+ } mttl_settings;
+ /* Only settings affecting the broker session or Discovery require reconnect. */
+ int mttl_settings_mqtt_changed(const mttl_settings *,const mttl_settings *);
+diff --git a/source/standalone/host_test/protection_settings_test.c b/source/standalone/host_test/protection_settings_test.c
+index 5a70f4c..abd6d6e 100644
+--- a/source/standalone/host_test/protection_settings_test.c
++++ b/source/standalone/host_test/protection_settings_test.c
+@@ -18,13 +18,13 @@ static unsigned total, failures;
+ 
+ /* Older layouts for a version byte, in bytes, taken from mttl_settings_unpack. */
+ static size_t older_tail(uint8_t version){
+-    switch(version){case 1:return 0;case 4:return 7;case 5:return 57;case 6:return 58;case 7:return 66;case 8:return 74;}
+-    return 74;
++    switch(version){case 1:return 0;case 4:return 7;case 5:return 57;case 6:return 58;case 7:return 66;case 8:return 74;case 9:return 79;}
++    return 79;
+ }
+-/* Re-cut a packed v8 body to look like a record written by an older firmware. */
+-static size_t legacy(const uint8_t *v8,size_t n,uint8_t version,uint8_t *out){
+-    size_t size=n-(74-older_tail(version));
+-    memcpy(out,v8,size);out[0]=version;return size;
++/* Re-cut a packed v9 body to look like a record written by an older firmware. */
++static size_t legacy(const uint8_t *v9,size_t n,uint8_t version,uint8_t *out){
++    size_t size=n-(79-older_tail(version));
++    memcpy(out,v9,size);out[0]=version;return size;
+ }
+ 
+ /* Field-by-field so struct padding can never make this test lie. */
+@@ -180,21 +180,21 @@ static void test_protection_per_channel(void){
+     CHECK(!mttl_protection_round(&p,&c,2|4,0,0,0,ci)&&!p.reason);
+ }
+ 
+-static void test_settings_v8(void){
++static void test_settings_v9(void){
+     mttl_settings a,b;uint8_t body[512];size_t n,i;
+     mttl_settings_default(&a);
+     n=mttl_settings_pack(&a,body,sizeof(body));
+-    /* Wire-format pin: 5 header + 11 length prefixes + 28 string bytes + v8 tail. */
+-    CHECK(n==118);
+-    CHECK(body[0]==8);
++    /* Wire-format pin: 5 header + 11 length prefixes + 28 string bytes + v9 tail. */
++    CHECK(n==123);
++    CHECK(body[0]==9);
+     /* Language byte: 1 = English (default), 2 = Egyptian Arabic, 3 is invalid. */
+     CHECK(body[1]==1);
+     a.language=2;
+     n=mttl_settings_pack(&a,body,sizeof(body));
+-    CHECK(n==118&&body[1]==2&&mttl_settings_unpack(body,n,&b)&&b.language==2);
++    CHECK(n==123&&body[1]==2&&mttl_settings_unpack(body,n,&b)&&b.language==2);
+     a.language=0;
+     n=mttl_settings_pack(&a,body,sizeof(body));
+-    CHECK(n==118&&body[1]==0&&mttl_settings_unpack(body,n,&b)&&b.language==0);
++    CHECK(n==123&&body[1]==0&&mttl_settings_unpack(body,n,&b)&&b.language==0);
+     a.language=3;
+     CHECK(!mttl_settings_pack(&a,body,sizeof(body)));
+     mttl_settings_default(&a);
+@@ -208,25 +208,36 @@ static void test_settings_v8(void){
+     a.protection.enabled=MTTL_PROTECTION_ENABLE_ALL;
+     for(i=0;i<4;i++)a.protection.channel_current_ma[i]=(uint16_t)(1000+100*i);
+     n=mttl_settings_pack(&a,body,sizeof(body));
+-    CHECK(n==118&&mttl_settings_unpack(body,n,&b));
++    CHECK(n==123&&mttl_settings_unpack(body,n,&b));
+     for(i=0;i<4;i++)CHECK(b.protection.channel_current_ma[i]==1000+100*i);
+     CHECK(b.protection.enabled==MTTL_PROTECTION_ENABLE_ALL);
+-    /* The web encoder must emit little-endian per-channel limits in channel order. */
++    /* The web encoder must emit little-endian per-channel limits in channel order,
++     * followed by the v9 auto_off tail. */
+     mttl_settings_default(&a);
+     a.protection.channel_current_ma[0]=1000;a.protection.channel_current_ma[1]=0x1234;
+     a.protection.channel_current_ma[2]=0x3abc;a.protection.channel_current_ma[3]=16000;
+     n=mttl_settings_pack(&a,body,sizeof(body));
+-    CHECK(n==118);
+-    CHECK(body[n-8]==0xe8&&body[n-7]==0x03);
+-    CHECK(body[n-6]==0x34&&body[n-5]==0x12);
+-    CHECK(body[n-4]==0xbc&&body[n-3]==0x3a);
+-    CHECK(body[n-2]==0x80&&body[n-1]==0x3e);
+-    /* Storage wrapper keeps the device-owned checkpoint around a v8 body. */
++    CHECK(n==123);
++    CHECK(body[n-13]==0xe8&&body[n-12]==0x03);  /* ch0: 1000 mA */
++    CHECK(body[n-11]==0x34&&body[n-10]==0x12);  /* ch1: 0x1234 */
++    CHECK(body[n-9]==0xbc&&body[n-8]==0x3a);    /* ch2: 0x3abc */
++    CHECK(body[n-7]==0x80&&body[n-6]==0x3e);    /* ch3: 16000 = 0x3e80 */
++    /* v9 tail defaults: mask=0, threshold=2000=0x07d0, minutes=10=0x000a. */
++    CHECK(body[n-5]==0x00);
++    CHECK(body[n-4]==0xd0&&body[n-3]==0x07);
++    CHECK(body[n-2]==0x0a&&body[n-1]==0x00);
++    /* auto_off fields round-trip. */
++    mttl_settings_default(&a);
++    a.auto_off_mask=3;a.auto_off_threshold_mw=1500;a.auto_off_minutes=15;
++    n=mttl_settings_pack(&a,body,sizeof(body));
++    CHECK(n==123&&mttl_settings_unpack(body,n,&b));
++    CHECK(b.auto_off_mask==3&&b.auto_off_threshold_mw==1500&&b.auto_off_minutes==15);
++    /* Storage wrapper keeps the device-owned checkpoint around a v9 body. */
+     mttl_settings_default(&a);
+     a.protection.channel_current_ma[1]=1234;
+     a.relay_known=15;a.relay_on=2;a.energy_valid=1;a.energy_wh[0]=1234;a.energy_raw[1]=99;
+     n=mttl_settings_storage_pack(&a,body,sizeof(body));
+-    CHECK(n==118+38);
++    CHECK(n==123+38);
+     CHECK(mttl_settings_storage_unpack(body,n,&b));
+     CHECK(b.protection.channel_current_ma[1]==1234);
+     CHECK(b.relay_known==15&&b.relay_on==2&&b.energy_valid==1&&b.energy_wh[0]==1234&&b.energy_raw[1]==99);
+@@ -265,26 +276,39 @@ static void test_legacy_record_import(void){
+ }
+ 
+ static void test_settings_rejections(void){
+-    mttl_settings a,b;uint8_t body[512],old[512];size_t n;
++    mttl_settings a,b;uint8_t body[512],old[512];size_t n,v8len;
+     mttl_settings_default(&a);
+     a.protection.temperature_c=65;a.protection.current_ma=2300;a.protection.power_w=750;
+     a.protection.enabled=MTTL_PROTECTION_ENABLE_ALL;
+     a.protection.channel_current_ma[0]=1000;
+     n=mttl_settings_pack(&a,body,sizeof(body));
+-    CHECK(n==118);
+-    /* Defect guard: the version byte must move with the tail length. A v8 body
+-     * relabelled as v7 is rejected instead of being silently mis-parsed. */
+-    memcpy(old,body,n);old[0]=7;CHECK(!mttl_settings_unpack(old,n,&b));
+-    memcpy(old,body,n);old[0]=8;CHECK(mttl_settings_unpack(old,n,&b)&&b.protection.channel_current_ma[0]==1000);
++    CHECK(n==123);
++    /* Defect guard: the version byte must move with the tail length. A v9 body
++     * relabelled as v8 is rejected instead of being silently mis-parsed. */
++    memcpy(old,body,n);old[0]=8;CHECK(!mttl_settings_unpack(old,n,&b));
++    memcpy(old,body,n);old[0]=9;CHECK(mttl_settings_unpack(old,n,&b)&&b.protection.channel_current_ma[0]==1000);
++    /* A v8 body (no auto_off tail) still loads, auto_off fields default to zero. */
++    v8len=legacy(body,n,8,old);CHECK(mttl_settings_unpack(old,v8len,&b)&&!b.auto_off_mask&&b.auto_off_threshold_mw==2000&&b.auto_off_minutes==10);
+     /* Unknown enable bits are refused, not masked off. */
+-    memcpy(old,body,n);old[n-74]=16;CHECK(!mttl_settings_unpack(old,n,&b));
++    memcpy(old,body,n);old[n-79]=16;CHECK(!mttl_settings_unpack(old,n,&b));
+     /* Per-channel limits are range checked like the aggregate pair. */
+-    memcpy(old,body,n);old[n-8]=0xe7;old[n-7]=0x03;CHECK(!mttl_settings_unpack(old,n,&b)); /* 999 mA */
+-    memcpy(old,body,n);old[n-8]=0xe8;old[n-7]=0x03;CHECK(mttl_settings_unpack(old,n,&b));  /* 1000 mA */
+-    memcpy(old,body,n);old[n-8]=0x81;old[n-7]=0x3e;CHECK(!mttl_settings_unpack(old,n,&b)); /* 16001 mA */
+-    /* A v8 body missing its per-channel tail is refused. */
++    memcpy(old,body,n);old[n-13]=0xe7;old[n-12]=0x03;CHECK(!mttl_settings_unpack(old,n,&b)); /* 999 mA */
++    memcpy(old,body,n);old[n-13]=0xe8;old[n-12]=0x03;CHECK(mttl_settings_unpack(old,n,&b));  /* 1000 mA */
++    memcpy(old,body,n);old[n-13]=0x81;old[n-12]=0x3e;CHECK(!mttl_settings_unpack(old,n,&b)); /* 16001 mA */
++    /* A v9 body missing its auto_off tail is refused. */
+     CHECK(!mttl_settings_unpack(body,n-1,&b));
+     CHECK(!mttl_settings_unpack(body,n+1,&b));
++    /* auto_off_mask>15 is refused. */
++    memcpy(old,body,n);old[n-5]=16;CHECK(!mttl_settings_unpack(old,n,&b));
++    /* mask!=0 with threshold=0 is refused. */
++    memcpy(old,body,n);old[n-5]=1;old[n-4]=0;old[n-3]=0;CHECK(!mttl_settings_unpack(old,n,&b));
++    /* mask!=0 with minutes=0 is refused. */
++    memcpy(old,body,n);old[n-5]=1;old[n-4]=0xd0;old[n-3]=0x07;old[n-2]=0;old[n-1]=0;CHECK(!mttl_settings_unpack(old,n,&b));
++    /* auto_off on a locked outlet: conflicting bit is cleared on load (not rejected),
++     * same policy as timer_minutes — the stored bit that could never fire is lost. */
++    memcpy(old,body,n);old[n-5]=1;/* mask=ch0 */
++    /* button_lock is at n-79+57=n-22 in v9 body */
++    old[n-22]|=1;/* lock ch0 */CHECK(mttl_settings_unpack(old,n,&b)&&!b.auto_off_mask);
+ }
+ 
+ static void test_settings_migration(void){
+@@ -297,28 +321,28 @@ static void test_settings_migration(void){
+     a.protection.channel_current_ma[2]=3000;a.protection.channel_current_ma[3]=4000;
+     a.button_lock=3;a.timer_minutes[3]=30;
+     n=mttl_settings_pack(&a,body,sizeof(body));
+-    CHECK(n==118);
+-    /* v8 keeps everything. */
++    CHECK(n==123);
++    /* v9 keeps everything. */
+     CHECK(mttl_settings_unpack(body,n,&b));
+     CHECK(b.protection.channel_current_ma[1]==2000&&b.timer_minutes[3]==30&&b.button_lock==3);
+     /* v4: no schedule, no lock, no timers, no per-channel limits. */
+-    len=legacy(body,n,4,old);CHECK(len==n-67);CHECK(mttl_settings_unpack(old,len,&b));
++    len=legacy(body,n,4,old);CHECK(len==n-72);CHECK(mttl_settings_unpack(old,len,&b));
+     CHECK(b.protection.temperature_c==65&&b.protection.current_ma==2300&&b.protection.power_w==750&&b.protection.enabled==14);
+     CHECK(b.protection.channel_current_ma[0]==16000&&b.protection.channel_current_ma[3]==16000&&!b.button_lock&&!b.timer_minutes[3]);
+     {mttl_schedule_config def;mttl_schedule_default(&def);CHECK(!memcmp(&b.schedule,&def,sizeof(def)));}
+     /* v5, v6, v7 all land on the same per-channel defaults. */
+-    len=legacy(body,n,5,old);CHECK(len==n-17);CHECK(mttl_settings_unpack(old,len,&b)&&b.protection.channel_current_ma[3]==16000&&!b.button_lock);
+-    len=legacy(body,n,6,old);CHECK(len==n-16);CHECK(mttl_settings_unpack(old,len,&b)&&b.protection.channel_current_ma[0]==16000&&b.button_lock==3&&!b.timer_minutes[3]);
+-    len=legacy(body,n,7,old);CHECK(len==n-8);CHECK(mttl_settings_unpack(old,len,&b));
++    len=legacy(body,n,5,old);CHECK(len==n-22);CHECK(mttl_settings_unpack(old,len,&b)&&b.protection.channel_current_ma[3]==16000&&!b.button_lock);
++    len=legacy(body,n,6,old);CHECK(len==n-21);CHECK(mttl_settings_unpack(old,len,&b)&&b.protection.channel_current_ma[0]==16000&&b.button_lock==3&&!b.timer_minutes[3]);
++    len=legacy(body,n,7,old);CHECK(len==n-13);CHECK(mttl_settings_unpack(old,len,&b));
+     CHECK(b.protection.channel_current_ma[0]==16000&&b.protection.channel_current_ma[3]==16000);
+     CHECK(b.protection.temperature_c==65&&b.protection.current_ma==2300&&b.protection.power_w==750);
+     CHECK(b.protection.enabled==14&&b.button_lock==3&&b.timer_minutes[3]==30);
+     /* v1 predates protection entirely. */
+-    len=legacy(body,n,1,old);CHECK(len==n-74);CHECK(mttl_settings_unpack(old,len,&b));
++    len=legacy(body,n,1,old);CHECK(len==n-79);CHECK(mttl_settings_unpack(old,len,&b));
+     CHECK(b.protection.enabled==7&&b.protection.temperature_c==90&&b.protection.channel_current_ma[0]==16000&&!b.button_lock);
+     /* Rewriting a migrated record persists the per-channel defaults. */
+     n=mttl_settings_pack(&b,body,sizeof(body));
+-    CHECK(n==118);
++    CHECK(n==123);
+     CHECK(mttl_settings_unpack(body,n,&a));
+     CHECK(a.protection.channel_current_ma[0]==16000&&a.protection.temperature_c==90);
+     /* Nothing in a migrated record lost the Wi-Fi or broker credentials. */
+@@ -339,17 +363,17 @@ static void test_settings_lock_timer_rule(void){
+      * protects another channel. */
+     a.timer_minutes[1]=0;a.timer_minutes[2]=45;
+     CHECK(mttl_settings_valid(&a));
+-    n=mttl_settings_pack(&a,body,sizeof(body));CHECK(n==118);
++    n=mttl_settings_pack(&a,body,sizeof(body));CHECK(n==123);
+     CHECK(mttl_settings_unpack(body,n,&b)&&b.button_lock==2&&b.timer_minutes[2]==45);
+     /* A stored body that still holds both, written by a firmware without this
+      * rule, must load instead of being rejected: the lock clears the timer. */
+-    memcpy(old,body,n);old[n-17]|=(uint8_t)(1u<<2);CHECK(old[n-12]==45);
++    memcpy(old,body,n);old[n-22]|=(uint8_t)(1u<<2);CHECK(old[n-17]==45);
+     CHECK(mttl_settings_unpack(old,n,&b));
+     CHECK(b.button_lock==6&&!b.timer_minutes[0]&&!b.timer_minutes[2]);
+     /* The same record in the older on-flash layout (no per-channel tail) is
+      * normalised the same way: a timer can never survive behind the lock. */
+     {uint8_t v7[512];size_t len=legacy(body,n,7,v7);v7[len-9]|=(uint8_t)(1u<<2);
+-     CHECK(len==n-8&&mttl_settings_unpack(v7,len,&b));
++     CHECK(len==n-13&&mttl_settings_unpack(v7,len,&b));
+      CHECK(b.button_lock==6&&!b.timer_minutes[2]&&!b.timer_minutes[1]);}
+ }
+ 
+@@ -496,7 +520,7 @@ int main(void){
+     test_protection_per_channel();
+     test_protection_cut_policy();
+     test_ha_trip_discovery();
+-    test_settings_v8();
++    test_settings_v9();
+     test_legacy_record_import();
+     test_settings_rejections();
+     test_settings_migration();
+diff --git a/source/standalone/ui/i18n.js b/source/standalone/ui/i18n.js
+index 090ee65..5d486ca 100644
+--- a/source/standalone/ui/i18n.js
++++ b/source/standalone/ui/i18n.js
+@@ -240,6 +240,10 @@
+     logRestartSkipped:'Outlet {number}: restart skipped, outlet still on',
+ 
+     logSavedBroker:'Saved in flash; plaintext IPv4 broker only',
++    autoOff:'Auto-off',
++    autoOffHint:'Turn off an outlet when it draws less than the threshold wattage for the wait time. Enable per outlet; threshold and wait time are shared.',
++    autoOffThresh:'Threshold (W)',
++    autoOffWait:'Wait (min)',
+     };
+   /* Egyptian Arabic (colloquial Cairene). Covers every tab; English above stays
+    * the complete table and the fallback for any key added later. */
+@@ -455,6 +459,10 @@
+     lastTrip:'آخر قطع',
+     sensorErrors:'أخطاء الحساسات',
+     none:'مفيش',
++    autoOff:'إطفاء تلقائي',
++    autoOffHint:'إطفاء المخرج لما يستهلك أقل من الحد للمدة المحددة. كل مخرج لوحده؛ الحد والوقت مشتركين.',
++    autoOffThresh:'الحد (واط)',
++    autoOffWait:'الانتظار (دقيقة)',
+ 
+ 
+ 
+diff --git a/source/standalone/ui/index.html b/source/standalone/ui/index.html
+index a11a32b..b5811f1 100644
+--- a/source/standalone/ui/index.html
++++ b/source/standalone/ui/index.html
+@@ -33,6 +33,7 @@
+     <button role="tab" aria-selected="false" aria-controls="protection" id="tab-protection" data-i18n="protection">Protection</button>
+     <button role="tab" aria-selected="false" aria-controls="scheduler" id="tab-scheduler" data-i18n="scheduler">Scheduler</button>
+     <button role="tab" aria-selected="false" aria-controls="timer" id="tab-timer" data-i18n="timer">Timer</button>
++    <button role="tab" aria-selected="false" aria-controls="autooff" id="tab-autooff" data-i18n="autoOff">Auto-off</button>
+     <button role="tab" aria-selected="false" aria-controls="settings" id="tab-settings" data-i18n="settings">Settings</button>
+   </nav>
+   <div id="subnav" role="tablist" aria-label="Settings" data-i18n-aria="settings" hidden>
+@@ -93,6 +94,7 @@
+     <div class="panel"><h2 data-i18n="scheduler">Scheduler</h2><form id="schedule-form"><div id="schedule-editor"></div><div id="schedule-status" class="status" role="status"></div></form></div>
+   </section>
+   <section id="timer" role="tabpanel" aria-labelledby="tab-timer"><div class="panel"><h2 data-i18n="timer">Timer</h2><form id="timer-form"><div id="timer-editor"></div><div id="timer-status" class="status" role="status"></div></form></div></section>
++  <section id="autooff" role="tabpanel" aria-labelledby="tab-autooff"><div class="panel"><h2 data-i18n="autoOff">Auto-off</h2><p class="muted" data-i18n="autoOffHint"></p><form id="autooff-form"><label for="autooff-watts" data-i18n="autoOffThresh">Threshold (W)</label><input id="autooff-watts" type="number" min="0.1" max="50" step="0.1" value="2"><label for="autooff-mins" data-i18n="autoOffWait">Wait (min)</label><input id="autooff-mins" type="number" min="1" max="1440" value="10"><div id="autooff-channels"></div><div class="row"><button id="autooff-apply" class="primary" data-i18n="applyProtection" disabled>Apply</button></div><div id="autooff-status" class="status" role="status"></div></form></div></section>
+   <section id="firmware" role="tabpanel" aria-labelledby="sub-firmware">
+     <div class="panel"><h2 data-i18n="firmware">Firmware</h2>
+       <div class="sensor"><span data-i18n="currentVersion">Current version</span><b id="current-firmware-version">2.1.0</b></div>
+diff --git a/source/standalone/ui/live.js b/source/standalone/ui/live.js
+index d0979b2..33ef48f 100644
+--- a/source/standalone/ui/live.js
++++ b/source/standalone/ui/live.js
+@@ -76,22 +76,27 @@
+     const port=Number(c.port);if(!Number.isInteger(port)||port<1||port>65535)throw Error('Port');
+     const fields=[c.device,...c.channels,'','',c.broker,c.user,password,c.topic];if(fields.length!==11)throw Error('Channels');
+     const language=Number.isInteger(c.language)&&c.language>=0&&c.language<=2?c.language:1;
+-    const bytes=[8,language,c.enabled?1:0,port&255,port>>>8];const limits=[64,64,64,64,64,32,64,253,64,64,64];
++    const bytes=[9,language,c.enabled?1:0,port&255,port>>>8];const limits=[64,64,64,64,64,32,64,253,64,64,64];
+     fields.forEach((field,i)=>{const data=new TextEncoder().encode(field||'');if(data.length>limits[i])throw Error('Length');bytes.push(data.length,...data);});
+     const p=c.protection||{enabled:7,temperature:90,current:16000,power:3000};
+     if(!Number.isInteger(p.enabled)||p.enabled<0||p.enabled>15||!Number.isInteger(p.temperature)||p.temperature<50||p.temperature>90||!Number.isInteger(p.current)||p.current<1000||p.current>16000||!Number.isInteger(p.power)||p.power<100||p.power>3000)throw Error('Protection');
+     bytes.push(p.enabled,p.temperature&255,p.temperature>>>8,p.current&255,p.current>>>8,p.power&255,p.power>>>8);
+     const hex=c.schedule_hex||MttlSchedule.encode(MttlSchedule.defaults());MttlSchedule.decode(hex);bytes.push(...hex.match(/../g).map(x=>parseInt(x,16)));const locks=c.button_lock||0;if(!Number.isInteger(locks)||locks<0||locks>15)throw Error('Lock');bytes.push(locks);const timers=c.timer_minutes||[0,0,0,0];MttlTimer.valid(timers,MttlSchedule.decode(hex));timers.forEach(m=>bytes.push(m&255,m>>>8));
+-    /* Settings v8 tail: four per-channel limits in mA, in channel order. Every
+-     * outlet is held to the same limit as the strip, so the current limit is
+-     * stored for all four and the firmware reads no other per-channel value. */
++    /* v8 tail: four per-channel limits in mA, in channel order. */
+     for(let i=0;i<4;i++)bytes.push(p.current&255,p.current>>>8);
++    /* v9 tail: idle auto-off. */
++    const aoMask=(c.auto_off_mask||0)&15,aoW=c.auto_off_threshold_mw||2000,aoM=c.auto_off_minutes||10;if(aoMask&&(!aoW||!aoM||aoM>1440))throw Error('AutoOff');bytes.push(aoMask,aoW&255,aoW>>>8,aoM&255,aoM>>>8);
+     return Uint8Array.from(bytes);
+   }
+-async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(snapshot?.state))throw Error('Not ready');const body=settingsBody(c,password);try{try{await request('/api/config',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-MTTL-Keep-Password':keep?'1':'0'},body});}catch(_){/* A lost POST response does not prove the write failed. Never repost. */}for(let n=0;n<12;n++){await new Promise(resolve=>setTimeout(resolve,250));let saved;try{saved=await request('/api/config');}catch(_){continue;}if(saved.persistent&&(saved.button_lock||0)===(c.button_lock||0)&&saved.device===c.device&&JSON.stringify(saved.channels)===JSON.stringify(c.channels)&&saved.language===(c.language??1)&&(!c.timer_minutes||JSON.stringify(saved.timer_minutes)===JSON.stringify(c.timer_minutes))&&saved.broker===c.broker&&saved.port===c.port&&saved.user===c.user&&saved.enabled===c.enabled&&(!c.schedule_hex||saved.schedule_hex===c.schedule_hex)&&(!c.protection||['enabled','temperature','current','power'].every(k=>saved.protection?.[k]===c.protection[k]))){configuration=saved;return true;}}throw Error('Flash save not confirmed');}finally{body.fill(0);}}
++async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(snapshot?.state))throw Error('Not ready');const body=settingsBody(c,password);try{try{await request('/api/config',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-MTTL-Keep-Password':keep?'1':'0'},body});}catch(_){/* A lost POST response does not prove the write failed. Never repost. */}for(let n=0;n<12;n++){await new Promise(resolve=>setTimeout(resolve,250));let saved;try{saved=await request('/api/config');}catch(_){continue;}if(saved.persistent&&(saved.button_lock||0)===(c.button_lock||0)&&saved.device===c.device&&JSON.stringify(saved.channels)===JSON.stringify(c.channels)&&saved.language===(c.language??1)&&(!c.timer_minutes||JSON.stringify(saved.timer_minutes)===JSON.stringify(c.timer_minutes))&&saved.broker===c.broker&&saved.port===c.port&&saved.user===c.user&&saved.enabled===c.enabled&&(!c.schedule_hex||saved.schedule_hex===c.schedule_hex)&&(!c.protection||['enabled','temperature','current','power'].every(k=>saved.protection?.[k]===c.protection[k]))&&(c.auto_off_mask===undefined||saved.auto_off_mask===c.auto_off_mask)){configuration=saved;return true;}}throw Error('Flash save not confirmed');}finally{body.fill(0);}}
+   function loadProtection(){const p=configuration?.protection||{},e=Number.isInteger(p.enabled)?p.enabled:7;
+     ['temperature','current','power'].forEach((k,i)=>{const v=Number.isInteger(p[k])?p[k]:{temperature:90,current:16000,power:3000}[k];el('protect-'+k).value=String(k==='current'?v/1000:v);el('protect-'+k+'-enabled').checked=!!(e&(1<<i));});
+     protectionValues();}
++  function loadAutoOff(){if(!configuration)return;
++    const w=configuration.auto_off_threshold_mw||2000,m=configuration.auto_off_minutes||10,mask=configuration.auto_off_mask||0;
++    el('autooff-watts').value=w/1000;el('autooff-mins').value=m;
++    const d=el('autooff-channels'),locks=configuration.button_lock||0;d.innerHTML='';
++    for(let i=0;i<4;i++){const lbl=document.createElement('label');const chk=document.createElement('input');chk.type='checkbox';chk.id='autooff-ch-'+(i+1);chk.checked=!!(mask&(1<<i));chk.disabled=!!(locks&(1<<i));lbl.append(chk,' ',name(i));d.append(lbl);}}
+   function protectionValues(){
+     ['temperature','current','power'].forEach(k=>{el('protect-'+k+'-value').textContent=(k==='current'?Number(el('protect-'+k).value).toFixed(1):el('protect-'+k).value)+' '+({temperature:'°C',current:'A',power:'W'}[k]);});
+   }
+@@ -106,6 +111,8 @@ async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(sn
+     timerEditor.ready();
+     observe();
+     el('protection-apply').disabled=!configuration||![2,5].includes(snapshot?.state)||protectionSaving;
++    el('autooff-apply').disabled=!configuration||![2,5].includes(snapshot?.state)||autoOffSaving;
++    for(let i=0;i<4;i++){const chk=el('autooff-ch-'+(i+1));if(chk)chk.disabled=!!((configuration?.button_lock||0)&(1<<i));}
+     {const p=deviceSnapshot?.protection,names=[t('temperature'),t('current'),t('power')];const items=bits=>names.filter((_,i)=>bits&(1<<i)).join(', ');const where=bits=>{const list=[];for(let i=0;i<4;i++)if(bits&(1<<i))list.push(name(i));return list.length?' · '+list.join(', '):'';};el('protection-state').textContent=p?(t('lastTrip')+': '+(p.reason?items(p.reason)+where(p.channel_mask):t('none'))+' · '+t('sensorErrors')+': '+(p.error?items(p.error):t('none'))):t('apiUnavailable');}
+     ['all-on','all-off'].forEach(id=>el(id).disabled=controlBusy||!deviceSnapshot?.hardware_ready||!snapshot?.hardware_ready||snapshot?.state!==5);
+     el('device-name').textContent=name(-1);
+@@ -236,11 +243,16 @@ async function storeConfiguration(c,password='',keep=true){if(![2,5].includes(sn
+     }finally{restarting.delete(i);render();}
+   }
+   el('all-on').onclick=()=>control(4,1);el('all-off').onclick=()=>control(4,0);
+-  let protectionSaving=false;
++  let protectionSaving=false,autoOffSaving=false;
+   const scheduleEditor=MttlSchedule.mount({available:()=>!!configuration&&[2,5].includes(snapshot?.state),timers:()=>configuration?.timer_minutes||[0,0,0,0],save:async hex=>{const fresh=await request('/api/config');MttlTimer.valid(fresh.timer_minutes||[0,0,0,0],MttlSchedule.decode(hex));await storeConfiguration({...fresh,schedule_hex:hex});timerEditor.load(configuration.timer_minutes);}});
+ const timerEditor=MttlTimer.mount({available:()=>!!configuration&&[2,5].includes(snapshot?.state),locked:()=>configuration?.button_lock||0,schedule:()=>MttlSchedule.decode(configuration?.schedule_hex||MttlSchedule.encode(MttlSchedule.defaults())),save:async minutes=>{const fresh=await request('/api/config');MttlTimer.valid(minutes,MttlSchedule.decode(fresh.schedule_hex||MttlSchedule.encode(MttlSchedule.defaults())));await storeConfiguration({...fresh,timer_minutes:minutes});scheduleEditor.translate();drawTimers();}});
+   setTimeout(timerClock,999);
+   ['temperature','current','power'].forEach(k=>el('protect-'+k).oninput=protectionValues);
++  el('autooff-form').onsubmit=async event=>{event.preventDefault();if(!configuration||autoOffSaving)return;
++    const w=Math.round(Number(el('autooff-watts').value)*1000),m=Number(el('autooff-mins').value)|0;let mask=0;for(let i=0;i<4;i++)if(el('autooff-ch-'+(i+1))?.checked)mask|=1<<i;
++    if(w<1||w>65535||m<1||m>1440)return;autoOffSaving=true;render();
++    try{await storeConfiguration({...configuration,auto_off_mask:mask,auto_off_threshold_mw:w,auto_off_minutes:m});el('autooff-status').textContent=t('nameSavedFlash');}
++    catch(_){el('autooff-status').textContent=t('saveFailed');}finally{autoOffSaving=false;render();}};
+   el('protection-form').onsubmit=async event=>{event.preventDefault();if(!configuration||protectionSaving)return;
+     const p={enabled:0,temperature:Number(el('protect-temperature').value),current:Math.round(Number(el('protect-current').value)*1000),power:Number(el('protect-power').value)};
+     ['temperature','current','power'].forEach((k,i)=>{if(el('protect-'+k+'-enabled').checked)p.enabled|=1<<i;});
+@@ -263,7 +275,7 @@ const timerEditor=MttlTimer.mount({available:()=>!!configuration&&[2,5].includes
+   el('wifi-form').onsubmit=async event=>{event.preventDefault();const ssid=el('ssid').value,password=el('wifi-password').value;el('wifi-password').value='';if(!ssid||new TextEncoder().encode(ssid).length>32){wifiMessage='ssidInvalid';render();return;}
+     try{await request('/api/wifi',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({ssid,password}).toString()});wifiMessage='connectAccepted';}catch(_){wifiMessage='apiUnavailable';}render();
+   };
+-  async function poll(){try{const result=await request('/api/status');if(!Number.isInteger(result.state)||result.state<0||result.state>6||!Number.isInteger(result.uptime_ms))throw Error('State');snapshot=result;statusAt=Date.now();}catch(_){snapshot=null;if(!controlBusy)deviceSnapshot=null;}if(snapshot){startEvents();if(!controlBusy&&!eventConnected){try{const d=await request('/api/device');if(!Array.isArray(d.channels)||d.channels.length!==4)throw Error('Device');if(!controlBusy&&!eventConnected)deviceSnapshot=d;}catch(_){if(!controlBusy)deviceSnapshot=null;}}if(!configuration){try{const c=await request('/api/config');if(!Array.isArray(c.channels)||c.channels.length!==4||typeof c.broker!=='string')throw Error('Config');configuration=c;applyLanguage();const savedLang=c.language===2?'ar':'en';if(savedLang!==lang){lang=savedLang;translate();}el('broker').value=c.broker;el('port').value=c.port;el('user').value=c.user;el('enabled').checked=c.enabled;loadProtection();timerEditor.load(c.timer_minutes);scheduleEditor.load(c.schedule_hex||MttlSchedule.encode(MttlSchedule.defaults()));}catch(_){configuration=null;}}}document.querySelectorAll('#mqtt-form input,#mqtt-form button').forEach(node=>node.disabled=!configuration||![2,5].includes(snapshot?.state));render();setTimeout(poll,eventConnected?20000:1000);}
++  async function poll(){try{const result=await request('/api/status');if(!Number.isInteger(result.state)||result.state<0||result.state>6||!Number.isInteger(result.uptime_ms))throw Error('State');snapshot=result;statusAt=Date.now();}catch(_){snapshot=null;if(!controlBusy)deviceSnapshot=null;}if(snapshot){startEvents();if(!controlBusy&&!eventConnected){try{const d=await request('/api/device');if(!Array.isArray(d.channels)||d.channels.length!==4)throw Error('Device');if(!controlBusy&&!eventConnected)deviceSnapshot=d;}catch(_){if(!controlBusy)deviceSnapshot=null;}}if(!configuration){try{const c=await request('/api/config');if(!Array.isArray(c.channels)||c.channels.length!==4||typeof c.broker!=='string')throw Error('Config');configuration=c;applyLanguage();const savedLang=c.language===2?'ar':'en';if(savedLang!==lang){lang=savedLang;translate();}el('broker').value=c.broker;el('port').value=c.port;el('user').value=c.user;el('enabled').checked=c.enabled;loadProtection();timerEditor.load(c.timer_minutes);loadAutoOff();scheduleEditor.load(c.schedule_hex||MttlSchedule.encode(MttlSchedule.defaults()));}catch(_){configuration=null;}}}document.querySelectorAll('#mqtt-form input,#mqtt-form button').forEach(node=>node.disabled=!configuration||![2,5].includes(snapshot?.state));render();setTimeout(poll,eventConnected?20000:1000);}
+   selectTab('device');translate();
+   const initialPoll=poll;
+   poll=async function(){await initialPoll();if(initialTabPending&&snapshot){const hash=typeof location!=='undefined'?location.hash.slice(1):'',node=hash?el(hash):null;selectTab(node&&node.tagName==='SECTION'||hash==='settings'?hash:snapshot.state===2?'wifi':'device');initialTabPending=false;}};
