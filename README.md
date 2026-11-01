@@ -64,12 +64,21 @@ What a strip running this fork does that an upstream `v2.1.0` strip does not:
     `auto_off_mask`, `auto_off_threshold_mw`, `auto_off_minutes`). A locked outlet cannot carry an
     auto-off timer; both are validated and the lock is authoritative. Default: all outlets off, 2 W
     threshold, 10 min wait.
+14. **Green card tint when on.** Each outlet card gains a green double-edge border when the outlet is
+    on, providing an at-a-glance active/inactive state across all four outlets without any reading.
+15. **Device name in the page header.** The `<h1>MTTL-W01</h1>` header updates from `render()` to
+    show the device's configured name from the settings record, falling back to `MTTL-W01` before the
+    first API response arrives.
+16. **Reset kWh button.** A *Reset kWh* (`صفّر kWh`) button appears on the controls row alongside
+    *All ON* / *All OFF*. It POSTs to `/api/energy`; the firmware sets a flag in the worker loop and
+    calls `mttl_sdk_energy_reset()` to zero all energy counters atomically from the worker thread.
 
 All of this is RAM-budget work: the firmware text shares its region with the gzipped web UI, and the
 linker refuses an image that crosses the reserved stack budget. The auto-off feature added ~575 B of
 C text and ~761 B of UI gzip, requiring the MSP reserve to be reduced from 4096 B to 3072 B
-(`__mttl_msp_limit` raised from `0x1006F000` to `0x1006F400`). The published build (19,943 of the
-20,000 B UI cap) leaves a **512 B** static gap to the MSP limit. Per-object costs, the build log and every
+(`__mttl_msp_limit` raised from `0x1006F000` to `0x1006F400`). Features #15 and #16 added a further
+~292 B of C text and ~108 B of UI gzip. The published build (20,051 of the 20,200 B UI cap) leaves a
+**112 B** static gap to the MSP limit. Per-object costs, the build log and every
 measurement are in [`docs/FEATURE-per-channel-current.md`](docs/FEATURE-per-channel-current.md).
 
 ### Upstream vs this fork, side by side
@@ -333,7 +342,7 @@ is on; HTTP and MQTT are unauthenticated on the LAN, so the strip belongs on a t
 
 ## Patches
 
-Eleven commits on top of upstream `v2.1.0`. `.patch` is `git format-patch` output (apply with `git am`),
+Seventeen commits on top of upstream `v2.1.0`. `.patch` is `git format-patch` output (apply with `git am`),
 `.diff` is the same commit as a plain diff for reading.
 
 | patch | commit | feature |
@@ -351,6 +360,10 @@ Eleven commits on top of upstream `v2.1.0`. `.patch` is `git format-patch` outpu
 | `0011-restart-button` | `adae332` | half-width on/off switch plus a per-outlet Restart (off, 5 s, on), disabled when off or locked (§9) |
 | `0012-restart-hidden-when-off-or-locked` | `b21aaa5` | hide the Restart button unless the outlet is on and unlocked; it stays visible during the countdown (§9) |
 | `0013-default-tab-power-strip` | `4f166a1` | open on the power strip after a refresh; Settings > Wi-Fi only in Setup AP, not during Connecting/Fault (§8) |
+| `0016-card-green-when-on` | `e36ff04` | green card background (white text) when outlet is on |
+| `0017-card-green-edge-when-on` | `df12290` | revert full green background; keep green double-edge border only (§14) |
+| `0018-idle-autooff-channel-lock` | `a2511fa` | idle auto-off per channel; long-press channel button ≥ 5 s to toggle lock (§13) |
+| `0019-hostname-header-reset-kwh` | `98435e7` | device name in page header; Reset kWh button on controls row (§15, §16) |
 
 `patches/README.md` documents each patch; `patches/2.0.15/` holds the earlier series based on the
 older 2.0.15 base (superseded, kept for reference).
@@ -401,12 +414,12 @@ curl -s http://<strip-ip>/api/firmware/status   # expect build_id abayoumy-autoo
 | | |
 |---|---|
 | file | `mttl-w01-2.1.0-abayoumy-autooff.fwr` |
-| size | 335,488 bytes |
-| sha256 | `6df3fc162472c1e4f04262d22641cabf50487733abe97b7884bc18b0d28f3f76` |
+| size | 335,880 bytes |
+| sha256 | `ee0315cf9287664f7f9a8e5d2ad22a21a55dc6bad405c4fc77d468e81e8f8a90` |
 | build id / version | `abayoumy-autooff` / `2.1.0` (base `v2.1.0`) |
 | profile | `NETWORK_OTA_TEST_RAM_SETTINGS` (relay, OTA write, settings flash and one-time legacy import, watchdog enabled) |
-| RAM gap to MSP | 512 bytes free (3,072-byte stack reserve; `__mttl_msp_limit` raised to `0x1006F400`) |
-| UI assets | 3 assets, 19,943 bytes gzip total (cap 20,000) — English + Arabic + restart + auto-off tab |
+| RAM gap to MSP | 112 bytes free (3,072-byte stack reserve; `__mttl_msp_limit` raised to `0x1006F400`) |
+| UI assets | 3 assets, 20,051 bytes gzip total (cap 20,200) — English + Arabic + restart + auto-off tab + device name header + Reset kWh |
 
 Only the latest build is published. The earlier ids (`abayoumy`, `abayoumy-notimers`, `abayoumy-lock`,
 `abayoumy-en`, `abayoumy-en-ar`) were intermediate steps; their logs and manifests are not in this repo.
@@ -433,7 +446,7 @@ The builds that were flashed were checked on physical strips before being publis
 manifest, every announced entity present in HA, and behavioural tests of the trip isolation, the lock
 (buttons, web UI single/ALL, HA single/ALL, timers, schedules) and the timer rule. The host unit suite
 passes **275 checks / 0 failed**; applying the
-published patches (0001–0013, 0016–0018) to a pristine upstream `v2.1.0` reproduces the tree
+published patches (0001–0013, 0016–0019) to a pristine upstream `v2.1.0` reproduces the tree
 the firmware here was built from.
 
 Both strips now run `abayoumy-autooff` on 2.1.0 (flashed 2026-11-01):
@@ -455,7 +468,14 @@ read `Outlet 1: restarting (off for 5 s)`. On the stubbed API, the countdown ran
 switch was disabled; on the same grid the button was hidden for the off outlet, for both locked
 outlets and shown only on the on/unlocked card, whose neighbour's pending command left it disabled. The language record was checked across two OTA reboots (2 stayed 2) —
 the earlier drift to English came from a stale full-record save in a browser tab, not from the
-journal. Raw transcripts and photos are not included in this repository.
+journal.
+
+The hostname header and Reset kWh button were verified on the stubbed API: the `<h1>` updates to the
+device name from `configuration.name` on the first successful status poll and falls back to
+`MTTL-W01` before the API responds; the Reset kWh button fires `POST /api/energy`, is disabled
+while the device is not ready (state ≠ 5), and the firmware's worker loop calls
+`mttl_sdk_energy_reset()` atomically when all guards clear. Raw transcripts and photos are not
+included in this repository.
 
 ## Licence
 
